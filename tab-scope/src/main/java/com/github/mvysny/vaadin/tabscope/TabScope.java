@@ -51,6 +51,20 @@ public final class TabScope implements Serializable {
     @Nullable
     private Attributes values = new Attributes();
 
+    /**
+     * Once this many milliseconds pass since the last UI of a tab scope is closed, the tab scope is
+     * considered orphaned and will be destroyed at some point. This timeout is critical:
+     * on page reload, the old UI is closed first before a new UI is created,
+     * creating a situation where zero UIs point to a tab scope.
+     * <br/>
+     * Without the timeout, the tab scope would have been closed immediately.
+     * <br/>
+     * Package-private and non-final <em>solely</em> so tests can shrink the grace period and
+     * exercise the orphan-reaping branch (see {@code TabScopeLifecycleTest}); treat it as a
+     * constant (60&nbsp;seconds) in production.
+     */
+    static long CLEANUP_DURATION_MS = 60 * 1000L;
+
     @NotNull
     private final Lifecycle lifecycle = new Lifecycle();
 
@@ -66,15 +80,6 @@ public final class TabScope implements Serializable {
          * This set is only used to track whether a tab scope is active.
          */
         private final Set<UI> uis = new HashSet<>();
-        /**
-         * Once 60 seconds passed since the last UI of a tab scope is closed, the tab scope is considered
-         * orphaned and will be destroyed at some point. This timeout is critical:
-         * on page reload, the old UI is closed first before a new UI is created,
-         * creating a situation where zero UIs point to a tab scope.
-         * <br/>
-         * Without timeout, the tab scope would have been closed immediately.
-         */
-        private static final Long CLEANUP_DURATION_MS = 60 * 1000L;
 
         /**
          * Tracks time since when no UIs point to this tab scope.

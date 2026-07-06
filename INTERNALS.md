@@ -351,3 +351,20 @@ Because 2.7.1 is unreleased, the build consumes it from a local Karibu-Testing c
 Gradle composite build (`settings.gradle.kts`); see the notes there. What still isn't testable
 this way is the *timing* itself (the race is deterministic here) or `window.name` preservation —
 those remain manual across real browsers.
+
+### Routing, layout caching, and lifecycle coverage
+
+- `TabScopedRoutingTest` exercises `TabScopedRouteInstantiator` across **navigation** (not just
+  reload): a `@TabScoped` route survives navigate-away-and-back (the property that makes tab scope
+  a superset of `@PreserveOnRefresh`), a `@TabScoped` *layout* is reused, and two `@TabScoped`
+  types coexist in one scope keyed by class.
+- `TabScopeLifecycleTest` drives the **reaping** branches the survival tests never reach: an
+  orphaned scope is destroyed and dropped from the scope map once past the grace period, session
+  destroy closes all scopes, and `getCurrent()` / `getValues()` fail fast in their guard cases.
+
+  Reaping is time-gated on `System.currentTimeMillis()` inside our own code, so Karibu can't help.
+  `TabScope.CLEANUP_DURATION_MS` is therefore package-private and non-final **solely** so the test
+  can shrink it (to `-1`) and let an EAGER reload run straight through orphan → reap → fresh scope
+  in one call; treat it as a 60 s constant in production. This is the one production seam added for
+  testing. What still needs upstream Karibu work — multi-tab isolation, `window.name` changing on
+  reload, and idle-UI reaping — is tracked in [ideas/new-karibu.md](ideas/new-karibu.md).
