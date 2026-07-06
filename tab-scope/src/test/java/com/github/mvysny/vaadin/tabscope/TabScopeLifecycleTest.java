@@ -80,8 +80,8 @@ public class TabScopeLifecycleTest {
         tornDown = true;
 
         assertEquals(1, destroyed.get(), "session destroy must close the tab scope");
-        // getValues() guards with Objects.requireNonNull, so a destroyed scope throws NPE.
-        final NullPointerException ex = assertThrows(NullPointerException.class, scope::getValues,
+        // Using a destroyed scope is a state error, not a null-argument error: ISE, not NPE.
+        final IllegalStateException ex = assertThrows(IllegalStateException.class, scope::getValues,
                 "values must be unavailable after the scope is destroyed");
         assertEquals("this scope has been destroyed", ex.getMessage());
     }
@@ -90,8 +90,8 @@ public class TabScopeLifecycleTest {
     @Test
     public void getCurrentFailsWithoutUiThread() {
         UI.setCurrent(null);
-        // getCurrent() guards the current UI with Objects.requireNonNull, hence NPE.
-        final NullPointerException ex = assertThrows(NullPointerException.class, TabScope::getCurrent);
+        // Wrong calling context is a state error: ISE, consistent with getCurrent()'s other guards.
+        final IllegalStateException ex = assertThrows(IllegalStateException.class, TabScope::getCurrent);
         assertEquals("Must be called from Vaadin UI thread", ex.getMessage());
     }
 }

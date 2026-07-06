@@ -178,7 +178,10 @@ public final class TabScope implements Serializable {
      */
     @NotNull
     public Attributes getValues() {
-        return Objects.requireNonNull(values, "this scope has been destroyed");
+        if (values == null) {
+            throw new IllegalStateException("this scope has been destroyed");
+        }
+        return values;
     }
 
     /**
@@ -259,7 +262,10 @@ public final class TabScope implements Serializable {
      *                        Serves as a replacement for Vaadin 8 UIInitListener.
      */
     private static void init(@NotNull SerializableConsumer<TabScope> tabInitListener) {
-        final UI ui = Objects.requireNonNull(UI.getCurrent(), "Must be called from Vaadin UI thread");
+        final UI ui = UI.getCurrent();
+        if (ui == null) {
+            throw new IllegalStateException("Must be called from Vaadin UI thread");
+        }
 
         // We need to fetch the Window Name (=browser tab identifier).
         // That can be retrieved from the ExtendedClientDetails (ECD).
@@ -298,7 +304,10 @@ public final class TabScope implements Serializable {
      */
     @NotNull
     public static TabScope getCurrent() {
-        final UI ui = Objects.requireNonNull(UI.getCurrent(), "Must be called from Vaadin UI thread");
+        final UI ui = UI.getCurrent();
+        if (ui == null) {
+            throw new IllegalStateException("Must be called from Vaadin UI thread");
+        }
 
         final Map<String, TabScope> instances = getInstances();
         final ExtendedClientDetails extendedClientDetails = ui.getInternals().getExtendedClientDetails();
