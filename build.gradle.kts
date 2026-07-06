@@ -68,6 +68,8 @@ subprojects {
                         }
                         scm {
                             url = "https://github.com/mvysny/vaadin-tab-scope"
+                            connection = "scm:git:https://github.com/mvysny/vaadin-tab-scope.git"
+                            developerConnection = "scm:git:git@github.com:mvysny/vaadin-tab-scope.git"
                         }
                     }
                     from(components["java"])
