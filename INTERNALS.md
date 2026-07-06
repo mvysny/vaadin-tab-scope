@@ -105,10 +105,20 @@ been orphaned for longer than `CLEANUP_DURATION_MS` (**60 seconds**) — long en
 reload's new UI to spring to life and re-attach, which clears `orphanedSince`.
 
 **Do not shorten this without considering reload races.** The grace period is what makes the
-0-UIs-during-reload window safe. (This timer-based approach has a theoretical fragility — if
-network comms stall for longer than the grace period during a reload, a live scope could be
-retired prematurely. See [ideas/retire-cleanup-timeout.md](ideas/retire-cleanup-timeout.md) for
-a proposed timer-free alternative.)
+0-UIs-during-reload window safe.
+
+The concrete mechanism that creates that 0-UI window is the **unload beacon** (Vaadin 24.1+). On
+`pagehide` the client unconditionally sends `navigator.sendBeacon(uidlUrl, {"UNLOAD": true})` — on
+a plain F5 reload, not just on tab close. The server (`ServerRpcHandler#handleUnloadBeaconRequest`)
+then `ui.close()`es the old UI **unless** its active route/layout is `@PreserveOnRefresh`, in which
+case the beacon is ignored. Because the beacon and the new tab's bootstrap request are independent
+requests (ordered only by the session lock), on a **non-`@PreserveOnRefresh`** reload the beacon
+can close the old UI *before* the new UI is created — a real interval with zero live UIs for the
+window name. The grace period exists to survive exactly that interval. (Absent the beacon, the old
+UI would instead linger ~15.5 min until heartbeat timeout, so there would be no gap — the beacon is
+what makes the timer necessary.) This is also why the timer cannot simply be replaced by
+"reap when the UI set empties": see [ideas/retire-cleanup-timeout.md](ideas/retire-cleanup-timeout.md),
+which investigates and rejects that for the general (annotation-agnostic) case.
 
 ### When cleanup actually runs
 
