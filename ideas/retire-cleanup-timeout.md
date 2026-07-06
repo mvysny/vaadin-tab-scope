@@ -1,7 +1,8 @@
 # Idea: retire the cleanup timeout
 
-**Status:** proposal / unverified
-**Relates to:** [INTERNALS.md](../INTERNALS.md) → "Cleanup"
+**Status:** proposal — the mechanism is de-risked by a Flow 25.2.1 source study (below); remaining
+work is a runtime confirmation and deciding the version-support policy.
+**Relates to:** [INTERNALS.md](../INTERNALS.md) → "Cleanup" and "Relationship to `@PreserveOnRefresh`".
 
 ## Problem with the current approach
 
@@ -15,125 +16,139 @@ during a legitimate reload (slow client, tab throttled in the background, laptop
 flaky connection), a *live* tab scope can be retired prematurely, and the user silently loses
 their tab-scoped state. The timeout is a heuristic, not a correctness guarantee.
 
-## The way out: Flow already guarantees an overlap (with `@PreserveOnRefresh`)
+## The finding: on a reload the successor UI is already registered before the old one leaves
 
-Investigation of the actual Flow **25.2.1** sources (`flow-server-25.2.1-sources.jar`) shows that,
-on the `@PreserveOnRefresh` path, there is **always at least one non-closing `UI` pointing to a
-window** during a reload — the new UI is fully live *before* the old one is ever marked closing.
-If we can rely on that, the timer becomes unnecessary: a scope is orphaned only when its UI count
-genuinely, permanently hits zero.
+A study of the actual Flow **25.2.1** sources (`flow-server-25.2.1-sources.jar` +
+`flow-client-25.2.1.jar`) establishes two facts that together make the timer unnecessary — in
+**both** the `@PreserveOnRefresh` and the plain path.
 
-### What reload actually does
+### Fact 1 — a reload always produces a 2-UI overlap (never a zero-UI gap)
 
-A full reload in the client-side-bootstrap flow (Flow 24+/25) is a two-request dance:
+A full reload is a two-request dance:
 
-1. **Request A — bootstrap (`?v-r=init`)**: `BootstrapHandler#createAndInitUI` (line 1349)
-   constructs a **new** `UI`, assigns a **new** UI id (`session.getNextUIid()`), calls
-   `session.addUI(ui)` (1385) and `fireUIInitListeners(ui)` (1387) — which is exactly why
-   `UIInitListener`/our `TabScope.init` runs once per reload. Note
-   `JavaScriptBootstrapHandler#initializeUIWithRouter` (line 179) is an **empty no-op**, so no
-   route is rendered yet. **At the end of request A the old UI is still fully live and still in
-   `session.getUIs()`.**
-2. **Request B — navigation UIDL**: the client invokes `UI#browserNavigate(...)` (line 2018) →
-   `renderViewForRoute` → `Router` → `AbstractNavigationStateRenderer#handle`. This is where the
-   old UI is finally retired — but only on the preserve path.
+- **Request A — bootstrap (`?v-r=init`)**: `BootstrapHandler#createAndInitUI` builds the new UI,
+  and in this exact order: `extractAndStoreBrowserDetails(request, ui)` (line 1380) →
+  `session.addUI(ui)` (1385) → `fireUIInitListeners(ui)` (1387). The old UI is still fully live
+  and in `session.getUIs()` throughout.
+- **Request B — navigation UIDL** (`UI#browserNavigate`): the router runs, and only now is the
+  old UI retired — and only on the preserve path.
 
-### The ordering guarantee (the crux)
+**With `@PreserveOnRefresh`:** `AbstractNavigationStateRenderer#disconnectElements` (lines
+1055–1073) teleports the component chain to the new UI and then, as its **last** statement, calls
+`prevUi.close()` (line 1071; `UI#close` sets `closing=true`, lines 375–376). The old UI is removed
+from the session later still, by `VaadinService#removeClosedUIs` (line 1748). So there is a real
+overlap where both UIs share the window name; the durable observable state is "new UI live + old
+UI `isClosing()`".
 
-`AbstractNavigationStateRenderer#disconnectElements` (lines 1055–1073), running on the **new** UI
-during request B:
+**Without `@PreserveOnRefresh`:** the `else` branch of `populateChain` (lines 328–339) creates
+fresh components and **never calls `prevUi.close()`**. The old UI simply lingers, inactive, in
+`session.getUIs()` until `VaadinService#closeInactiveUIs` (lines 1764–1772) reaps it once
+`isUIActive` (1832) goes false — i.e. after `getHeartbeatTimeout` (1791) = `heartbeatInterval ×
+3.1`, default `300 × 3.1 ≈ 930 s ≈ 15.5 min`. So the overlap here is *longer*, not absent.
 
-```java
-final Optional<UI> maybePrevUI = component.getUI();
-if (maybePrevUI.isPresent() && maybePrevUI.get().equals(ui)) return;
-root.getElement().removeFromTree(false);          // move cached chain off old UI
-maybePrevUI.ifPresent(prevUi -> {
-    ui.getInternals().moveElementsFrom(prevUi);    // move dialogs/etc to new UI
-    prevUi.close();                                // old UI marked closing — LAST
-});
-```
+Either way: **during a reload the window name is served by two UIs; there is no instant with zero
+live UIs.** This directly contradicts the premise the grace period was protecting against.
 
-So the true order is:
+### Fact 2 — the new UI's `window.name` is known server-side synchronously, before the old UI leaves
 
-1. **(b)** new UI created + `session.addUI` — request A. Old UI still open, not closing.
-2. **(c)** component tree moved old → new — request B, `disconnectElements`.
-3. **(a)** `prevUi.close()` sets `UI.closing = true` (`UI#close` line 375, `isClosing` line 405) —
-   the **last** step, *after* the new UI exists and the tree has moved.
-4. **(d)** old UI removed from session — later, asynchronously, by
-   `VaadinService#removeClosedUIs` (1748) / `closeInactiveUIs` (1764), which also calls
-   `AbstractNavigationStateRenderer.purgeInactiveUIPreservedChainCache` (1263).
+The browser sends `window.name` (as `v-wn`) on the **bootstrap** request A, not on
+`browserNavigate` (`BrowserNavigateEvent`, lines 1957–1970, carries no window name). The client
+mints one early if absent (`Flow.ts` lines 116–118, *"Set window.name early so
+@PreserveOnRefresh can use it to identify the browser tab"*) and includes it in
+`collectBrowserDetails` (`v-wn`, lines 534–536; `v-sw`, 484). Server-side,
+`extractAndStoreBrowserDetails` → `ExtendedClientDetails.updateFromValues` reads `v-wn` (line 556)
+and calls `ui.getInternals().setExtendedClientDetails(details)` (line 560) — all *before*
+`addUI`/`fireUIInitListeners`.
 
-The important asymmetry: it is **not** "old marked closing → then new created". It is the reverse.
-There is a deliberate 2-UI overlap for the window, and never a zero-live-UI instant within the
-preserve path. (This is the "transiently 2 UIs" case already noted in INTERNALS.md.)
+Consequences:
 
-### Flow's own preserve registry (for reference)
+- By the time our `UIInitListener` runs for the new UI (request A),
+  `ui.getInternals().getExtendedClientDetails().getWindowName()` is **already populated**.
+- `Page#retrieveExtendedClientDetails` (lines 782–791) short-circuits and calls back
+  **synchronously** when details were populated at bootstrap (`screenWidth != -1`) — so
+  `TabScope.init`'s existing `retrieveExtendedClientDetails` callback fires *in request A*, with
+  no round-trip.
+- Flow's own preserve path confirms the value is in hand synchronously during navigation:
+  `getPreservedChain` (lines 1024–1053) takes the synchronous branch (line 1039) and only falls
+  back to async `retrieveExtendedClientDetails` (line 1035) if the window name is null.
 
-Flow keys preserved component chains by `window.name` in
-`AbstractNavigationStateRenderer.PreservedComponentCache` (line 1179), a
-`HashMap<String, Pair<String, ArrayList<HasElement>>>` stored as a `VaadinSession` attribute under
-the key `PreservedComponentCache.class`. Value = `Pair<locationPath, chain>`. This confirms Flow
-itself treats `window.name` as tab identity — the same key `TabScope` uses.
+### Why that kills the timer
+
+Because request A (which runs our `UIInitListener` → `lifecycle.add(newUI)`) completes *before*
+request B (which closes the old UI → detach → `removeUI(oldUI)` → `lifecycle.remove(oldUI)`), and
+the new UI carries the *same* window name, the successor is added to the scope **before** the
+predecessor is removed. The scope's live-UI set therefore **never becomes empty during a reload**.
+The set only empties when the tab is genuinely gone with no successor — which is exactly when we
+*want* to reap.
 
 ## Proposed change
 
-If the overlap guarantee holds end-to-end for our listeners, then:
+Drop the timer and reap on a genuinely empty set:
 
-- Drop `CLEANUP_DURATION_MS` / `orphanedSince` entirely.
-- Close a scope the moment its live-UI set becomes empty (`uis` empty after `removeIf(isClosing)`),
-  because that now means the tab is genuinely gone, not mid-reload.
+- Remove `CLEANUP_DURATION_MS` and `orphanedSince`.
+- In `Lifecycle.remove(...)`: after `uis.removeIf(UI::isClosing)`, if `uis` is empty, close the
+  scope immediately. Keep `destroyAllTabScopes` on session destroy.
 
-This turns a heuristic timer into an event-driven, correct-by-construction cleanup.
+Optionally, as belt-and-suspenders (see caveat 3), instead of trusting our own set, re-derive the
+truth at reap time: scan `VaadinSession.getUIs()` for any non-closing UI whose
+`getExtendedClientDetails().getWindowName()` equals this scope's window name, and reap only if none
+exists. This is robust against any add/remove interleaving surprise, at the cost of an O(#UIs) scan
+on detach.
 
-## Why this is NOT safe to do yet — the caveats
+This turns a fragile heuristic timer into event-driven, correct-by-construction cleanup, and as a
+bonus reaps closed tabs *immediately* instead of after 60 s.
 
-1. **It only holds with `@PreserveOnRefresh`.** Without the annotation, `AbstractNavigationStateRenderer`
-   takes the `else` branch (lines 328–339): fresh component instances, `clearAllPreservedChains`,
-   and the old UI is **never explicitly closed** by the navigation code — it just goes stale and is
-   reaped by `closeInactiveUIs` on heartbeat timeout (`getHeartbeatTimeout` ≈ 3.1× heartbeat
-   interval, line 1791). On that path there **is** a real zero-UI gap between the old UI being
-   reaped and the new UI's `browserNavigate` re-establishing the scope — exactly what today's grace
-   period covers. This library explicitly advertises that it "works correctly even without
-   `@PreserveOnRefresh`". Retiring the timer would therefore either:
-   - require making `@PreserveOnRefresh` mandatory for tab-scoped routes/layouts (a behavior change
-     to document loudly), or
-   - keep the timer as a fallback for the non-preserve path.
+## Remaining caveats
 
-2. **Ordering of *our* listeners vs. Flow's close is unverified.** The guarantee above is at the
-   Flow UI level. We need to confirm that `TabScope.lifecycle.add(newUI)` (which happens inside the
-   new UI's `retrieveExtendedClientDetails` callback in `TabScope.init`) reliably runs **before**
-   `removeUI(oldUI)` (fired from the old UI's detach listener on `prevUi.close()`). If the new UI's
-   ECD round-trip is slow, `add(newUI)` could land *after* `remove(oldUI)` — reintroducing a
-   transient zero-UI moment even on the preserve path. This is the single most important thing to
-   test before removing the timer.
+1. **Version-specific (Flow 25.2+).** The "window name arrives on the bootstrap request and is
+   stored before navigation" behavior is a 25.2+ optimization (`ExtendedClientDetails.updateFromValues`
+   is `@since 25.3`, `updateFromJson` `@since 25.2`). On older Flow (≤ 24.x) the window name was
+   fetched via a separate async round-trip, so it could be null during the first navigation and the
+   new UI's `add` could land *after* the old UI's `remove` — reintroducing the zero-UI window.
+   **Do not back-port the timer removal to the v23/24 branches without re-verifying.** This master
+   branch targets Vaadin 25.2.1, so it is in scope here.
 
-3. **No built-in UI-by-windowName index.** `VaadinSession` stores UIs in a `Map<Integer, UI>` keyed
-   by UI id (`getUIs()` line 590; no window-name index). Window name is only reachable per-UI via
-   `ui.getInternals().getExtendedClientDetails().getWindowName()`, and that can be `null` until the
-   client round-trip completes. So any "is any live UI still pointing at this window?" check must
-   iterate `session.getUIs()` and tolerate null ECD — it cannot be a cheap map lookup.
+2. **Browser dropping `window.name` (the pre-existing Safari limitation).** If the browser fails
+   to preserve `window.name` (Safari 18.3.1 with dev tools closed; [flow#21141](https://github.com/vaadin/flow/issues/21141)),
+   the client mints a *new* random name, so the reloaded UI does **not** share the old scope's
+   window name. Successor detection then finds nothing and the old scope is reaped immediately.
+   This is **acceptable and not a regression**: the tab identity is genuinely lost either way (the
+   value can't be recovered), so immediate reap is no worse than today's "reap after 60 s". It is
+   the same limitation the README already documents.
+
+3. **No UI-by-windowName index in Flow.** `VaadinSession` keys UIs by id (`getUIs()`, line 590);
+   there is no window-name index, and a UI's window name is only reachable via
+   `ui.getInternals().getExtendedClientDetails().getWindowName()`, which can be null on
+   non-standard bootstrap requests (missing `v-sw`). The optional session-scan above must tolerate
+   null and iterate.
 
 ## Verification plan
 
-- Instrument `add`/`remove` and log the exact interleaving across a reload **with**
-  `@PreserveOnRefresh`, on a throttled/slow connection, to confirm `add(new)` precedes
-  `remove(old)` every time (caveat 2).
-- Confirm the non-preserve path behavior (caveat 1) — measure the real gap and decide whether to
-  mandate `@PreserveOnRefresh` or keep the timer as a fallback.
-- Consider a hybrid: event-driven close on the preserve path, timer fallback otherwise, so we keep
-  the "works without `@PreserveOnRefresh`" promise while removing the fragility for the common case.
+The source study answers the "can Flow ever leave a zero-UI gap on reload" question (no, on 25.2+).
+What remains is runtime confirmation of *our* code's behavior:
+
+- Instrument `add`/`remove` and log the interleaving across a reload — **with** and **without**
+  `@PreserveOnRefresh`, on a throttled/slow connection — to confirm `add(new)` precedes
+  `remove(old)` and `uis` never empties during reload.
+- Confirm closed-tab reaping still happens promptly (beacon detach → empty set → immediate close).
+- Decide the version-support policy (caveat 1): timer-free on the 25.x master branch, keep the
+  timer on v23/24 branches, or feature-detect.
 
 ## References
 
-All line numbers from `com.vaadin:flow-server:25.2.1` sources.
+All line numbers from `com.vaadin:flow-server:25.2.1` sources unless noted.
 
-- `BootstrapHandler#createAndInitUI` (1349), `#initializeUIWithRouter` no-op override in
-  `JavaScriptBootstrapHandler` (179)
-- `UI#browserNavigate` (2018), `UI#close` (375), `UI#isClosing` (405)
-- `AbstractNavigationStateRenderer#handle` (205), `#disconnectElements` (1055),
-  `#isPreserveOnRefreshTarget` (1158), `#getPreservedChain` (1024), `#setPreservedChain` (1227),
-  `#clearAllPreservedChains` (1238), `#purgeInactiveUIPreservedChainCache` (1263),
-  `PreservedComponentCache` (1179)
-- `UIInternals#moveElementsFrom` (1033), `UIInternalUpdater#moveToNewUI` (86)
-- `VaadinService#removeClosedUIs` (1748), `#closeInactiveUIs` (1764), `#getHeartbeatTimeout` (1791)
-- `VaadinSession#getUIs` (590), `#addUI` (941), `#removeUI` (681)
+- `BootstrapHandler#createAndInitUI` (1349): `extractAndStoreBrowserDetails` (1380), `addUI`
+  (1385), `fireUIInitListeners` (1387); `ExtendedClientDetails.updateFromValues` reads `v-wn`
+  (556), `setExtendedClientDetails` (560)
+- `AbstractNavigationStateRenderer#disconnectElements` (1055–1073, `prevUi.close()` 1071),
+  `#populateChain` non-preserve else (328–339), `#getPreservedChain` (1024–1053, sync branch 1039,
+  async fallback 1035)
+- `UI#browserNavigate` / `BrowserNavigateEvent` (1957–1970, no window name), `UI#close` (375–376)
+- `Page#retrieveExtendedClientDetails` (782–791, synchronous short-circuit)
+- `UIInternals#getExtendedClientDetails` (1514–1522)
+- `VaadinService#closeInactiveUIs` (1764–1772), `#removeClosedUIs` (1748), `#isUIActive` (1832),
+  `#getHeartbeatTimeout` (1791); `DefaultDeploymentConfiguration.DEFAULT_HEARTBEAT_INTERVAL` = 300 (72)
+- `VaadinSession#getUIs` (590)
+- Client (`flow-client-25.2.1.jar`, `Flow.ts`): window.name mint (116–118), `collectBrowserDetails`
+  `v-wn` (534–536) / `v-sw` (484), init request assembly (432, 445–453)
