@@ -133,6 +133,25 @@ public class TabScopeReloadTimingTest {
     }
 
     /**
+     * The follow-up to a NEVER reload: production eventually reaps the lingering old UI via Flow's
+     * heartbeat / idle-UI cleanup. {@link MockVaadin#reapInactiveUIs()} models that outcome — the
+     * lost-beacon UI is removed and the scope stays alive on its one remaining (new) UI.
+     */
+    @Test
+    public void neverReloadLingeringUiIsCleanedUpByReap() {
+        KaribuConfig.setUnloadBeaconTiming(UnloadBeaconTiming.NEVER);
+
+        final TabScope before = TabScope.getCurrent();
+        UI.getCurrent().getPage().reload();
+        assertEquals(2, VaadinSession.getCurrent().getUIs().size());
+
+        MockVaadin.reapInactiveUIs();
+
+        assertEquals(1, VaadinSession.getCurrent().getUIs().size(), "the lingering old UI is reaped");
+        assertSame(before, TabScope.getCurrent(), "the scope stays alive on its remaining UI");
+    }
+
+    /**
      * On a {@code @PreserveOnRefresh} route Flow ignores the unload beacon (it closes the old UI
      * from the new UI's navigation instead), so the beacon timing has no effect: the scope survives
      * and exactly one UI remains, whatever the flag is set to. Also confirms tab-scoped values are

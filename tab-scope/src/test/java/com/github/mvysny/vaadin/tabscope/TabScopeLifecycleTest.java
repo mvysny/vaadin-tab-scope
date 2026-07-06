@@ -1,5 +1,6 @@
 package com.github.mvysny.vaadin.tabscope;
 
+import com.github.mvysny.kaributesting.v10.MockBrowser;
 import com.github.mvysny.kaributesting.v10.MockVaadin;
 import com.github.mvysny.kaributesting.v10.Routes;
 import com.vaadin.flow.component.UI;
@@ -84,6 +85,32 @@ public class TabScopeLifecycleTest {
         final IllegalStateException ex = assertThrows(IllegalStateException.class, scope::getValues,
                 "values must be unavailable after the scope is destroyed");
         assertEquals("this scope has been destroyed", ex.getMessage());
+    }
+
+    /**
+     * A background tab closed with a <em>lost</em> unload beacon leaves its UI lingering; the server
+     * only learns it is gone when Flow's idle-UI cleanup reaps it, modeled by
+     * {@link MockVaadin#reapInactiveUIs()}. The reap detaches the lingering UI, orphaning that tab's
+     * scope, which the (shrunk) grace-period sweep then destroys — while the focused tab is untouched.
+     */
+    @Test
+    public void lostBeaconBackgroundTabIsReapedAndItsScopeDestroyed() {
+        final String focusedTab = MockBrowser.getCurrentWindowName();
+        MockBrowser.newTab(); // background tab, now focused
+        final String backgroundTab = MockBrowser.getCurrentWindowName();
+        final AtomicInteger backgroundDestroyed = new AtomicInteger();
+        TabScope.getCurrent().addDestroyListener(ts -> backgroundDestroyed.incrementAndGet());
+        MockBrowser.switchTo(focusedTab);
+
+        MockBrowser.closeTab(backgroundTab, true); // beacon lost: the UI lingers
+        assertTrue(MockBrowser.getTabs().contains(backgroundTab), "lost-beacon UI lingers until reaped");
+
+        TabScope.CLEANUP_DURATION_MS = -1L; // let the freshly-orphaned scope be reaped in the same sweep
+        MockVaadin.reapInactiveUIs();
+
+        assertFalse(MockBrowser.getTabs().contains(backgroundTab), "the reaper removed the lingering UI");
+        assertEquals(1, backgroundDestroyed.get(), "the background tab's scope was destroyed");
+        assertEquals(focusedTab, MockBrowser.getCurrentWindowName(), "the focused tab is untouched");
     }
 
     /** {@link TabScope#getCurrent()} requires the Vaadin UI thread; without a current UI it fails fast. */
