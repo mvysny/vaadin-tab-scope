@@ -135,6 +135,73 @@ the old orphaned scope is free to be collected. (The beacon is flaky in practice
 relied upon**: when a session times out and is closed by the servlet container, Vaadin's session
 destroy listeners are not called at all, so neither are ours.
 
+## Relationship to `@PreserveOnRefresh` (and why it is not required)
+
+**Decision: tab scoping is intentionally annotation-agnostic. `@PreserveOnRefresh` is never a
+prerequisite — at most it is an optional implementation optimization.** The README's claim that
+the project "works correctly even without `@PreserveOnRefresh`" is a deliberate design property,
+not an accident.
+
+### The two are distinct concepts that merely share one primitive
+
+`@PreserveOnRefresh` is a narrow, purpose-built marker: per its docs, the routed component
+instance is reused "only when reloaded in the same browser tab … and only if the URL stays the
+same", and its state is "discarded permanently" on navigation to a different route or a URL
+parameter change. The `UI` itself is still not preserved — the component reattaches to a fresh
+UI. It exists mainly for the data-entry-form UX case (accidental F5 shouldn't lose typed data).
+
+Tab scope, as built here, is a strict superset of that and then some:
+
+| | `@PreserveOnRefresh` | This project's tab scope |
+|---|---|---|
+| Survives F5 (same URL) | yes | yes |
+| Survives navigate-away-and-back | no (discarded) | yes (`TabScopedRouteInstantiator` re-caches) |
+| Arbitrary per-tab key/value store | no | yes (`TabScope.getValues()`) |
+| Keyed by | `window.name` **+ location** | `window.name` only |
+
+They overlap only in using `window.name` as tab identity — but that is simply *the* browser
+primitive for tab identity; sharing it implies no shared design lineage. Semantically, tab scope
+cannot derive from `@PreserveOnRefresh`, because it is broader on every axis.
+
+### Neither deliverable depends on the annotation
+
+- **Tab-scoped values** live in the `VaadinSession` keyed by `window.name`, and `TabScope.init`
+  fetches `ExtendedClientDetails` itself (`retrieveExtendedClientDetails`). The annotation is
+  irrelevant to them.
+- **`@TabScoped` routes** are cached and reattached by `TabScopedRouteInstantiator`
+  (`removeFromTree` + reuse). This *reimplements and exceeds* `@PreserveOnRefresh` — it even
+  survives navigation, which `@PreserveOnRefresh` explicitly does not.
+
+### Vaadin does not treat `@PreserveOnRefresh` as a step toward tab scope
+
+We checked whether Vaadin intends `@PreserveOnRefresh` as an early rung on a ladder toward proper
+tab scope (which would justify requiring it). It does not. [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468)
+("Add support for browser tab scope") explicitly lists a `@PreserveOnRefresh` parent layout among
+the *failed* workarounds (survives F5, breaks on back/forward and manual URL entry). The issue is
+still labelled `investigation` / `needs design` and sits in the backlog — a real tab scope is
+unbuilt and undesigned, and nothing positions `@PreserveOnRefresh` as its precursor. Coupling to
+it would therefore inherit its limitations (single-URL, no navigation survival) and bet on a
+design lineage that does not exist.
+
+### The one legitimate dependency is an optimization, not a requirement
+
+The single place `@PreserveOnRefresh` genuinely helps is the **cleanup lifecycle**, not the
+scoping semantics. On the preserve path, Flow guarantees a non-closing UI always exists during a
+reload (the 2-UI overlap described under "Cleanup"), which could let us drop the grace-period
+timer. Without the annotation, the old UI lingers to heartbeat timeout and a real zero-UI gap
+appears — which is exactly what the timer covers. So:
+
+- **Semantic layer** — tab scope must *not* require `@PreserveOnRefresh`. Keep it working both ways.
+- **Implementation layer** — `@PreserveOnRefresh`, *when present*, offers a stronger UI-lifecycle
+  guarantee we may exploit as an optimization, always with a fallback for when it is absent.
+
+See [ideas/retire-cleanup-timeout.md](ideas/retire-cleanup-timeout.md) for that optimization and
+its caveats.
+
+Sources: [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468),
+[Vaadin docs — Preserving State on Refresh](https://vaadin.com/docs/latest/flow/advanced/preserving-state-on-refresh),
+[vaadin/flow#3522](https://github.com/vaadin/flow/issues/3522).
+
 ## Testing
 
 There is no browser/Selenium layer in this repo — the `window.name`-preservation behavior above

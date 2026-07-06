@@ -77,6 +77,18 @@ public class TabScopedView extends VerticalLayout { ... }
 A custom `Instantiator` (`TabScopedRouteInstantiator`) caches `@TabScoped`-annotated views in
 the `TabScope`. See the `TabScopedView` and `TabScopedViewNoAppLayout` routes for examples.
 
+## Do I need `@PreserveOnRefresh`?
+
+No. Tab scoping works the same with or without it, and you should **not** treat the annotation as
+a prerequisite. `@PreserveOnRefresh` is a narrow, separate Vaadin feature — it only reuses a
+single view instance across F5 of the *same URL*, and throws that state away as soon as you
+navigate elsewhere. Tab scope here is broader: arbitrary per-tab values plus `@TabScoped` routes
+that survive both reload *and* navigation. Even Vaadin's own tab-scope discussion
+([flow#13468](https://github.com/vaadin/flow/issues/13468)) lists `@PreserveOnRefresh` as an
+insufficient workaround rather than the solution.
+
+For the full reasoning, see [INTERNALS.md](INTERNALS.md) → "Relationship to `@PreserveOnRefresh`".
+
 ## Limitations
 
 The functionality of this prototype depends on browsers preserving the `window.name` value on
