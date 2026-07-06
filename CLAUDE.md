@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project purpose
 
-Demo of tab-scoped values and tab-scoped routes for Vaadin Flow (Vaadin 24/25), without Spring — pure Servlet + Vaadin Boot. The project exists to work around [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468): unlike Vaadin 8's `UI`, a Vaadin Flow `UI` does not survive page reload, and `UIInitListener` fires multiple times per browser tab. See README.md for background.
+Demo of tab-scoped values and tab-scoped routes for Vaadin Flow (Vaadin 24/25), without Spring — pure Servlet + Vaadin Boot. The project exists to work around [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468): unlike Vaadin 8's `UI`, a Vaadin Flow `UI` does not survive page reload, and `UIInitListener` fires multiple times per browser tab. README.md is the user-facing kick-start; **INTERNALS.md holds the investigated facts and design rationale**; ideas/ holds forward-looking proposals.
 
 This is not a starter template — the `TabScope` / `TabScopedRouteInstantiator` / `TabScoped` trio is the product.
 
@@ -26,15 +26,15 @@ Three pieces implement tab scoping; changes to one usually require thinking abou
 
 2. **`TabScopedRouteInstantiator`** (registered via `META-INF/services/com.vaadin.flow.di.InstantiatorFactory`) — intercepts route/layout instantiation. For classes annotated `@TabScoped`, it caches the instance in `TabScope.getValues()` and calls `element.removeFromTree()` before returning, which is required to avoid *"Can't move a node from one state tree to another"* when Vaadin reattaches a cached component to a new UI.
 
-3. **`ApplicationServiceInitListener`** (registered via `META-INF/services/com.vaadin.flow.server.VaadinServiceInitListener`) — calls `TabScope.setup(...)` exactly once, in the tab-init callback, to seed values. The callback runs **before** any route/layout is constructed for that tab; this ordering is not enforced in code — it relies on Vaadin deferring navigation until `ExtendedClientDetails` is fetched. Fragile but currently unavoidable (see the long comment at the bottom of `TabScope.init`).
+3. **`ApplicationServiceInitListener`** (registered via `META-INF/services/com.vaadin.flow.server.VaadinServiceInitListener`) — calls `TabScope.setup(...)` exactly once, in the tab-init callback, to seed values. The callback runs **before** any route/layout is constructed for that tab; this ordering is not enforced in code — it relies on Vaadin deferring navigation until `ExtendedClientDetails` is fetched. Fragile but currently unavoidable (see INTERNALS.md, "Ordering").
 
 ### Known fragility: `window.name`
 
-Tab identity depends on the browser preserving `window.name` across navigation. Some browsers (notably Safari 18.3.1 with dev tools closed) do **not** preserve it when typing a URL or clicking a bookmark — these arrive as a new tab scope. See [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141) and the Limitations section of README.md before proposing changes that rely on tab identity.
+Tab identity depends on the browser preserving `window.name` across navigation. Some browsers (notably Safari 18.3.1 with dev tools closed) do **not** preserve it when typing a URL or clicking a bookmark — these arrive as a new tab scope. See [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141) and INTERNALS.md ("Tab identity fragility") before proposing changes that rely on tab identity.
 
 ### Cleanup is deliberately partial
 
-Tab scopes are **not** removed when the browser tab closes — only when the whole session is destroyed, or when a scope is observed orphaned for >60s during another request. This mirrors `vaadin-spring`'s `VaadinRouteScope` behavior. The open design questions are documented in README.md under "Cleaning up"; revisit that discussion before adding eager cleanup.
+Tab scopes are **not** removed when the browser tab closes — only when the whole session is destroyed, or when a scope is observed orphaned for >60s during another request. This mirrors `vaadin-spring`'s `VaadinRouteScope` behavior. The cleanup mechanics are documented in INTERNALS.md ("Cleanup"); a proposed timer-free alternative is in ideas/retire-cleanup-timeout.md. Revisit those before changing cleanup.
 
 ## Testing
 

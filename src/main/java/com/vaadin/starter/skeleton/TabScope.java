@@ -263,28 +263,15 @@ public final class TabScope implements Serializable {
             tabScope.lifecycle.add(ui);
             final TabScope finalTabScope = tabScope;
 
-            // when tab is closed, the beacon should kill UI eagerly:
-            // https://vaadin.com/blog/vaadin-flow-24.1-drastically-reduces-memory-usage
-            // What if the tab is reopened? It should continue with the tab scope stored in that UI...
-            // However, experiments show that reopened tab doesn't keep window.name =>
-            // this is a new tab => no need to preserve tab scope for UIs nuked by beacon.
-            //
-            // Unfortunately the beacon seem to work flakily, at least in Vaadin 25.0 and LibreWolf. /shrug
+            // On tab close the beacon detaches the UI, starting the orphan grace period; a
+            // reopened tab arrives with a fresh window.name, so nothing needs reconnecting.
+            // See INTERNALS.md ("Tab close needs no special handling").
             ui.addDetachListener(e -> removeUI(finalTabScope, ui));
         });
 
-        // Important note regarding the "before any route or layout is created or initialized"
-        // This requirement is not actually implemented anywhere in this code, but
-        // instead relies on the way internal Vaadin machinery works.
-        //
-        // The way this works is that Vaadin (when @PreserveOnRefresh is used) defers navigation
-        // until the ECD is fetched (since @PreserveOnRefresh needs to know the ECD.windowName too).
-        // Hopefully, our ExtendedClientDetailsReceiver is invoked first, initializing the TabScope;
-        // the deferred navigation hopefully happens afterwards.
-        //
-        // The usage of word "hopefully" above hints that this solution is a bit fragile, but
-        // unfortunately that's the only way. Vote for https://github.com/vaadin/flow/issues/13468
-        // to be implemented, so that a better solution can be found.
+        // The "before any route or layout is created or initialized" guarantee is NOT enforced
+        // here; it relies on Vaadin deferring navigation until ExtendedClientDetails is fetched.
+        // This is fragile — see INTERNALS.md ("Ordering") and vaadin/flow#13468.
     }
 
     /**
