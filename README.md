@@ -82,25 +82,27 @@ See the discussion of the [issue #21141](https://github.com/vaadin/flow/issues/2
 
 ## Cleaning up
 
-This is the open topic. The way `TabScope` works is that it keeps a `Map` from `ExtendedClientDetails.windowName`
-(which identifies the browser tab uniquely) to the instance of `TabScope`.
-At the moment, even if you close the browser tab, the tab-scoped routes and values will
-continue to be stored in the Vaadin Session, and they are never removed manually.
-The values and routes are only removed and GC-ed when the whole session goes down.
+The way `TabScope` works is that it keeps a `Map` from `ExtendedClientDetails.windowName`
+(which identifies the browser tab uniquely) to the instance of `TabScope`. That map lives on the
+`VaadinSession`, so at the latest all tab scopes are removed and GC-ed when the whole session goes down
+(`destroyAllTabScopes()`, hooked to a session destroy listener). This mirrors the official
+`vaadin-spring` plugin, where `VaadinRouteScope`'s `BeanStore` is also bound to the session.
 
-This is exactly the way in which the official `vaadin-spring` plugin, the `VaadinRouteScope` `BeanStore` works,
-so I'll just keep it like that for the time being.
+In addition, orphaned tab scopes are cleaned up eagerly, well before the session ends. Each `TabScope`
+tracks the set of `UI`s pointing to it (`Lifecycle`). A scope can't simply be purged the moment its UI
+count hits zero: on page reload the old UI is detached *before* the new one is created, so there's a
+window where zero UIs point to an otherwise-live tab scope. Purging on UI detach would therefore break
+reload. Instead, when the last UI detaches the scope is marked as *orphaned* (`orphanedSince`), and it's
+only closed once it has been orphaned for longer than a grace period (`CLEANUP_DURATION_MS`, 60 seconds) —
+long enough for the reload's new UI to spring to life and re-attach.
 
-Couple of considerations:
+The cleanup itself (`cleanupOrphans()`) runs opportunistically during other requests — on every UI init
+and on every UI detach — since there is no dedicated timer thread. This means a lone orphaned scope may
+linger past its 60 seconds until *some* request triggers the sweep, but it will never survive the session.
 
-* I can't purge the tab scope when the UI is closed: when refreshing, old UI is killed and detached,
-  before the new one springs to life. So, I can't purge the tab scope on UI detach, since that would cause tab-scoped
-  values to not survive the page reload.
-* I could perhaps mark down that the UI currently associated with the `TabScope` is detached, and perform
-  some kind of GC after certain time - the same way Vaadin cleans up inactive UIs. There would have to be
-  a configurable timeout though...
-* or maybe not: on page reload, it is expected that the new UI springs to life
-  fast. So maybe I can wait 60 seconds tops, then kill the tab scope.
-* Not so fast: when tab is closed, [the beacon kills UI eagerly](https://vaadin.com/blog/vaadin-flow-24.1-drastically-reduces-memory-usage). But if the tab is reopened, it should continue with the tab scope stored in that UI... however, experiments show that reopened tab doesn't keep window.name => this is a new tab => no need to preserve tab scope for UIs nuked by beacon.
-
-Remains to be seen.
+Note that closing a browser tab does not need any special handling: when a tab is closed,
+[the beacon kills the UI eagerly](https://vaadin.com/blog/vaadin-flow-24.1-drastically-reduces-memory-usage),
+which detaches the UI and starts the orphan grace period. Reopening the tab does not preserve `window.name`,
+so it arrives as a brand-new tab scope — there is nothing to reconnect to, and the old orphaned scope is
+free to be collected. (The beacon is a bit flaky in practice — e.g. Vaadin 25.0 with LibreWolf — but the
+grace-period sweep catches the scope regardless.)
