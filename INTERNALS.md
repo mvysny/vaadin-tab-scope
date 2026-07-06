@@ -20,12 +20,62 @@ Tab identity is instead derived from the browser's `window.name`, exposed to the
 The project is a two-module Gradle build. The **`tab-scope`** library (package
 `com.github.mvysny.vaadin.tabscope`) ships pieces 1–2 below plus the `@TabScoped` annotation, and
 **nothing else** — in particular, no `META-INF/services` files. The **`testapp`** demo owns both
-SPI registration files and piece 3 (`ApplicationServiceInitListener`).
+SPI registration files and piece 3 (`ApplicationServiceInitListener`). The library is pure Java with
+no frontend and does not apply the `com.vaadin` Gradle plugin; only the demo runs the Vaadin frontend
+build. `tab-scope` is the product published to Maven Central — not a starter template — since Vaadin
+upstream has no plans to support tab scope ([vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468));
+`testapp` is the runnable demo that shows the wiring.
 
-The library ships no SPI on purpose: Vaadin resolves exactly one `InstantiatorFactory` and Spring
-registers its own, so shipping ours would break Spring apps by construction. Each consuming app
-therefore registers the `InstantiatorFactory` and its `VaadinServiceInitListener` itself. See
-`ideas/two-project-split.md` for the full rationale and the future `tab-scope-spring` sketch.
+### Coordinates and naming
+
+Following the [`jdbi-orm-vaadin`](https://gitlab.com/mvysny/jdbi-orm-vaadin) convention that the Maven
+**group id squashes** while the Java **package stays dotted**:
+
+| | value |
+|---|---|
+| group id (squashed) | `com.github.mvysny.vaadintabscope` |
+| artifact id | `tab-scope` |
+| full coordinates | `com.github.mvysny.vaadintabscope:tab-scope` |
+| library package | `com.github.mvysny.vaadin.tabscope` |
+| demo package | `testapp` |
+
+### Why the library ships no `META-INF/services` files
+
+Spring support is deferred, but deliberately **not prevented** — the lever that keeps that door open
+is shipping no SPI service files from the library. Verified Flow/Spring mechanics:
+
+- **`com.vaadin.flow.di.InstantiatorFactory`** — Vaadin resolves exactly **one** instantiator. Spring
+  ships its own `SpringInstantiatorFactory` and registers instantiator factories by `@Component`, not
+  SPI. If our library shipped this file it would collide with Spring's and **break Spring apps by
+  construction** — a hard blocker, not a style choice.
+- **`com.vaadin.flow.server.VaadinServiceInitListener`** — Spring auto-registers any `@Component`
+  implementing it; non-Spring apps use SPI. Even though this file is merely *additive*, shipping it
+  invites a double-registration trap under Spring (the listener discovered both via `ServiceLoader`
+  and as a bean — [vaadin/spring#531](https://github.com/vaadin/spring/issues/531)).
+
+So both files live in `testapp`, and the README documents them as the wiring a plain
+Servlet/Vaadin-Boot app must add. (Consistent with `jdbi-orm-vaadin`, whose library also ships no SPI.)
+
+### Consequence for the `setup()` contract
+
+Because the library can't ship a `VaadinServiceInitListener`, there is no drop-in auto-wiring path:
+the app **must** wire the plumbing. So `TabScope.setup(consumer)` stays the app-facing contract,
+called from the app's own `VaadinServiceInitListener`. The "jar on the classpath but `setup()`
+forgotten" footgun largely evaporates — both SPI files and the `setup()` call now live together and
+visibly in the app.
+
+### Future `tab-scope-spring` module (not built)
+
+"Support Spring later" splits cleanly along the two product pieces:
+
+- **`TabScope`** (the value store) is framework-agnostic — reusable under Spring as-is.
+- **`TabScopedRouteInstantiator`** is *inherently* non-Spring: Spring needs its own `SpringInstantiator`,
+  so ours cannot be stacked. A future Spring integration would be a **separate `tab-scope-spring`
+  module** implementing a custom bean scope (the way `vaadin-spring` does `@RouteScope` /
+  `VaadinRouteScope`), not a reuse of this class.
+
+So: don't bake SPI assumptions into the core, and leave room beside `tab-scope/` for a future
+`tab-scope-spring/`.
 
 ## The three pieces
 

@@ -13,7 +13,7 @@ This is not a starter template — the `TabScope` / `TabScopedRouteInstantiator`
 - **`tab-scope/`** — the reusable library, published to Maven Central as `com.github.mvysny.vaadintabscope:tab-scope`. Package `com.github.mvysny.vaadin.tabscope`. Pure Java, `compileOnly(vaadin-core)`, logs via slf4j-api. **Ships no `META-INF/services` files** — see the SPI note below.
 - **`testapp/`** — the runnable Vaadin-Boot demo. Package `testapp`. Owns the two SPI registration files and `ApplicationServiceInitListener`.
 
-**Why the library ships no SPI files:** Vaadin resolves exactly one `InstantiatorFactory`, and Spring registers its own; shipping ours would break Spring apps. So both `META-INF/services` files (the `InstantiatorFactory` and the `VaadinServiceInitListener`) live in `testapp`, and each consuming app registers them itself. This keeps a future `tab-scope-spring` module possible. See `ideas/two-project-split.md`.
+**Why the library ships no SPI files:** Vaadin resolves exactly one `InstantiatorFactory`, and Spring registers its own; shipping ours would break Spring apps. So both `META-INF/services` files (the `InstantiatorFactory` and the `VaadinServiceInitListener`) live in `testapp`, and each consuming app registers them itself. This keeps a future `tab-scope-spring` module possible. See INTERNALS.md ("Library vs. app boundary").
 
 ## Commands
 
