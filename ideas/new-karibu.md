@@ -1,70 +1,37 @@
-# Idea: Karibu-Testing capabilities we want (and how we'll use them)
+# Idea: Karibu-Testing capabilities we need (and how we use them)
 
-**Status:** tracking — waiting on upstream Karibu-Testing. This file records the test capabilities
-this project needs from Karibu, the proposed upstream API, and **how we'll wire each one in once it
-lands**, so picking it up later is mechanical.
-**Relates to:** [INTERNALS.md](../INTERNALS.md) → "Testing", "Tab identity fragility", "Cleanup";
-[CLAUDE.md](../CLAUDE.md) → "Testing".
+**Status:** all three capabilities have **landed** in Karibu-Testing `master`
+(`2.7.1-SNAPSHOT`) and are wired into our tests via the composite build in `settings.gradle.kts`.
+What remains is purely the release migration: pin Karibu 2.7.1 and remove the composite-build /
+snapshot scaffolding once it is published to Maven Central. Delete this file when that's done.
+**Relates to:** [INTERNALS.md](../INTERNALS.md) → "Multi-tab isolation", "Tab identity fragility",
+"Cleanup"; [CLAUDE.md](../CLAUDE.md) → "Testing".
 
-## Context
+## What landed, and where we use it
 
-We already consume an unreleased Karibu (`2.7.1-SNAPSHOT`) via the composite build in
-`settings.gradle.kts` for `KaribuConfig.unloadBeaconTiming` (EAGER/LATE/NEVER), which
-`TabScopeReloadTimingTest` uses. The items below are the *next* things we need, all currently
-impossible. Upstream idea files live in the Karibu repo under `ideas/`:
+| Need | Karibu API (`2.7.1-SNAPSHOT`) | Our test |
+|---|---|---|
+| Multiple UIs (tabs) per session | `MockBrowser.newTab(windowName?, path?)`, `switchTo(name)`, `closeTab(name, beaconLost?)`, `tabs`, `currentWindowName`; `KaribuConfig.windowName` | `MultiTabTest` |
+| `window.name` change on reload | `MockBrowser.reload(newWindowName?)` (default preserves) | `TabIdentityTest` |
+| Idle-UI reaping (lost beacon) | `MockVaadin.reapInactiveUIs()`; `MockBrowser.closeTab(name, beaconLost = true)`; flagged by `UnloadBeaconTiming.NEVER` reloads | `TabScopeReloadTimingTest.neverReloadLingeringUiIsCleanedUpByReap`, `TabScopeLifecycleTest.lostBeaconBackgroundTabIsReapedAndItsScopeDestroyed` |
 
-- `ideas/configurable-window-name.md`
-- `ideas/multiple-uis-per-session.md`
-- `ideas/heartbeat-emulation.md` (pre-existing; suits us as-is)
+`MockBrowser` is the client-side test double (open/switch/close/reload tabs) driving the
+server-side `MockVaadin` — a cleaner split than we originally proposed. All methods are `@JvmStatic`,
+so from Java: `MockBrowser.newTab()`, `MockBrowser.switchTo(name)`, `MockBrowser.getCurrentWindowName()`,
+`MockBrowser.getTabs()`, `MockVaadin.reapInactiveUIs()`.
 
-## 1. Multiple UIs (browser tabs) per session — the big one
+## Migration checklist (when Karibu 2.7.1 is released)
 
-**Why:** tab-scope's whole reason to exist is *per-tab* isolation keyed by `window.name`, and it's
-the one guarantee we test **nowhere** — Karibu fakes a single hardcoded `window.name` shared by
-every UI, so two UIs would collide into one `TabScope`.
+1. Bump `kaributesting` in `gradle/libs.versions.toml` from `2.7.1-SNAPSHOT` to the `2.7.1` release.
+2. Remove the composite build in `settings.gradle.kts` (the `includeBuild(karibuTestingDir)` block).
+3. Remove the snapshot repo in `build.gradle.kts`.
+4. Run `./gradlew build` to confirm everything resolves from Maven Central.
+5. Delete this file (the two upstream idea files were already deleted in the Karibu repo on
+   implementation; `reapInactiveUIs` deliberately models the reap *outcome*, not heartbeat timing).
 
-**Upstream:** `MockVaadin.newBrowserTab(windowName)` + `MockVaadin.switchToTab(ui)` (see Karibu
-`ideas/multiple-uis-per-session.md`), which depends on configurable `window.name`.
+## Note: one project-side seam remains, unrelated to Karibu
 
-**How we'll use it** — a new `MultiTabTest` in `tab-scope`:
-- `newBrowserTab("tab-B")` → `TabScope.getCurrent()` differs from tab A's; `getInstances()` holds 2.
-- a value set in tab A's `getValues()` is absent in tab B (no leakage).
-- a `@TabScoped` route resolves to a **different** instance per tab (`INSTANCES == 2`).
-- closing/orphaning tab A leaves tab B's scope intact (independent lifecycle).
-
-## 2. Changing `window.name` on reload (tab-identity fragility)
-
-**Why:** some browsers don't preserve `window.name` across reload (Safari 18.3.1 / bookmark / typed
-URL — [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141)); such a reload must arrive as
-a **new** tab scope. Karibu always preserves the faked name, so this branch is invisible.
-
-**Upstream:** `MockVaadin.reloadWithNewWindowName(windowName)` or honoring a changed
-`KaribuConfig.windowName` on the next reload (see Karibu `ideas/configurable-window-name.md`).
-
-**How we'll use it** — extend `TabScopeReloadTimingTest` (or a new test):
-- capture the scope, reload with a *new* `window.name`, assert `TabScope.getCurrent()` is a
-  **different** instance (and the tab-init listener ran again → `counter == 2` for the new tab),
-  while the old scope is now orphaned.
-
-## 3. Idle-UI reaping / heartbeat (completes the reaping loop)
-
-**Why:** the orphan-cleanup path (`Lifecycle.close(true)` via `closeIfOrphaned()`) and the
-`UnloadBeaconTiming.NEVER` lingering-UI case are only fully exercised if a lingering/inactive UI can
-actually be reaped. Karibu has no time axis today.
-
-**Upstream:** `MockVaadin.expireInactiveUIs()` (the timeless "reap happened" option in Karibu
-`ideas/heartbeat-emulation.md` — sufficient for us; we don't need a virtual clock).
-
-**How we'll use it:**
-- after a `NEVER` reload (old UI lingers), call `expireInactiveUIs()` → the old UI detaches → its
-  `TabScope` becomes orphaned; then a triggered `cleanupOrphans()` sweep reaps it.
-- Note the *grace-period* reap in tab-scope is still time-gated on our own
-  `System.currentTimeMillis()`; testing "reaped after 60 s" needs a small **project-side** seam
-  (make `CLEANUP_DURATION_MS` / a clock injectable), not a Karibu change. See the reaping test in the
-  "no-Karibu-change" plan.
-
-## Handoff when each lands
-
-When a capability ships in a released Karibu: bump the catalog to that release, drop the relevant
-composite-build/snapshot scaffolding if no longer needed, add the test(s) described above, and remove
-that item from this file (delete the file once all are done).
+The 60 s grace-period reap in `TabScope` is time-gated on our own `System.currentTimeMillis()`, which
+Karibu cannot drive. `TabScope.CLEANUP_DURATION_MS` stays package-private + non-final so tests can
+shrink it; that is a permanent test seam, not something a Karibu release removes. See INTERNALS.md,
+"Routing, layout caching, and lifecycle coverage".

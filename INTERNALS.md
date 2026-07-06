@@ -94,6 +94,11 @@ However, some browsers do **not** preserve `window.name` under some of these:
 When `window.name` is not preserved, the navigation arrives as a brand-new tab scope. See the
 discussion in [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141).
 
+The *consequence* — a reload with a changed `window.name` producing a fresh scope — is now tested
+browserlessly in `TabIdentityTest` via `MockBrowser.reload(newWindowName)`. What still needs a real
+browser is confirming *which* browsers/actions actually fail to preserve `window.name` (the Safari
+rows above); Karibu can only simulate the changed-name outcome, not measure a given browser.
+
 ## Cleanup
 
 The scope map lives on the `VaadinSession`, so at the latest everything is removed and GC-ed
@@ -359,12 +364,27 @@ those remain manual across real browsers.
   a superset of `@PreserveOnRefresh`), a `@TabScoped` *layout* is reused, and two `@TabScoped`
   types coexist in one scope keyed by class.
 - `TabScopeLifecycleTest` drives the **reaping** branches the survival tests never reach: an
-  orphaned scope is destroyed and dropped from the scope map once past the grace period, session
-  destroy closes all scopes, and `getCurrent()` / `getValues()` fail fast in their guard cases.
+  orphaned scope is destroyed and dropped from the scope map once past the grace period, a
+  lost-beacon background tab is reaped (`MockVaadin.reapInactiveUIs()`) and its scope destroyed,
+  session destroy closes all scopes, and `getCurrent()` / `getValues()` fail fast in their guard
+  cases.
 
   Reaping is time-gated on `System.currentTimeMillis()` inside our own code, so Karibu can't help.
   `TabScope.CLEANUP_DURATION_MS` is therefore package-private and non-final **solely** so the test
   can shrink it (to `-1`) and let an EAGER reload run straight through orphan → reap → fresh scope
   in one call; treat it as a 60 s constant in production. This is the one production seam added for
-  testing. What still needs upstream Karibu work — multi-tab isolation, `window.name` changing on
-  reload, and idle-UI reaping — is tracked in [ideas/new-karibu.md](ideas/new-karibu.md).
+  testing.
+
+### Multi-tab isolation
+
+The capability tab scope exists for — two browser tabs (distinct `window.name`s) in one session
+getting two independent scopes — is now tested via Karibu-Testing's `MockBrowser`:
+
+- `MultiTabTest` — `MockBrowser.newTab()` / `switchTo(...)` / `closeTab(...)`: two tabs get
+  distinct scopes with per-tab init (no value leakage), a `@TabScoped` route resolves to a
+  different instance per tab, and closing one tab leaves the other's scope intact.
+- `TabIdentityTest`, and the `reapInactiveUIs()` cases above, also lean on `MockBrowser`.
+
+These use the unreleased Karibu `2.7.1-SNAPSHOT` (`MockBrowser`, `KaribuConfig.windowName`,
+`MockVaadin.reapInactiveUIs()`) via the composite build; the migration checklist for the 2.7.1
+release is in [ideas/new-karibu.md](ideas/new-karibu.md).
