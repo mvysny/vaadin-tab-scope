@@ -1,8 +1,8 @@
 # Allows you to run this app easily as a docker container.
 # See README.md for more details. Requires the docker buildkit/buildx extension.
 #
-# 1. Build the image with: docker build -t test/vaadin-tab-scope-example:latest .
-# 2. Run the image with: docker run --rm -ti -p8080:8080 test/vaadin-tab-scope-example
+# 1. Build the image with: docker build -t test/vaadin-tab-scope:latest .
+# 2. Run the image with: docker run --rm -ti -p8080:8080 test/vaadin-tab-scope
 #
 # Uses Docker Multi-stage builds: https://docs.docker.com/build/building/multi-stage/
 
@@ -11,14 +11,14 @@ FROM eclipse-temurin:21 AS builder
 COPY . /app/
 WORKDIR /app/
 RUN --mount=type=cache,target=/root/.gradle,sharing=locked --mount=type=cache,target=/root/.vaadin,sharing=locked ./gradlew clean build -Pvaadin.productionMode --no-daemon --no-watch-fs
-WORKDIR /app/build/distributions/
-RUN tar xvf app.tar
+WORKDIR /app/testapp/build/distributions/
+RUN tar xvf testapp.tar
 # At this point, we have the app (executable bash scrip plus a bunch of jars) in the
-# /app/build/distributions/app/ folder.
+# /app/testapp/build/distributions/testapp/ folder.
 
 # The "Run" stage. Start with a clean image, and copy over just the app itself, omitting gradle, npm and any intermediate build files.
 FROM eclipse-temurin:21
-COPY --from=builder /app/build/distributions/app /app/
+COPY --from=builder /app/testapp/build/distributions/testapp /app/
 WORKDIR /app/bin
 EXPOSE 8080
-ENTRYPOINT ["./app"]
+ENTRYPOINT ["./testapp"]

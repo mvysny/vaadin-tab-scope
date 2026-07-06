@@ -15,6 +15,18 @@ reload. See [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468).
 Tab identity is instead derived from the browser's `window.name`, exposed to the server via
 `ExtendedClientDetails.getWindowName()` (a unique ID per browser tab).
 
+## Library vs. app boundary
+
+The project is a two-module Gradle build. The **`tab-scope`** library (package
+`com.github.mvysny.vaadin.tabscope`) ships pieces 1–2 below plus the `@TabScoped` annotation, and
+**nothing else** — in particular, no `META-INF/services` files. The **`testapp`** demo owns both
+SPI registration files and piece 3 (`ApplicationServiceInitListener`).
+
+The library ships no SPI on purpose: Vaadin resolves exactly one `InstantiatorFactory` and Spring
+registers its own, so shipping ours would break Spring apps by construction. Each consuming app
+therefore registers the `InstantiatorFactory` and its `VaadinServiceInitListener` itself. See
+`ideas/two-project-split.md` for the full rationale and the future `tab-scope-spring` sketch.
+
 ## The three pieces
 
 Changing one of these usually means thinking about the other two.
@@ -27,7 +39,8 @@ scopes lives on the `VaadinSession` under the attribute `"tab-scopes"`
 
 ### 2. `TabScopedRouteInstantiator` — caching `@TabScoped` routes/layouts
 
-Registered via `META-INF/services/com.vaadin.flow.di.InstantiatorFactory`, it intercepts
+Registered by the app via `META-INF/services/com.vaadin.flow.di.InstantiatorFactory` (the library
+does not ship that file), it intercepts
 route/layout instantiation. For classes annotated `@TabScoped`, it caches the instance in
 `TabScope.getValues()` and — crucially — calls `element.removeFromTree()` before returning it.
 
@@ -41,8 +54,8 @@ moved from the old UI's state tree to the new one — hence the detach is mandat
 
 ### 3. `ApplicationServiceInitListener` — one-time per-tab init
 
-Registered via `META-INF/services/com.vaadin.flow.server.VaadinServiceInitListener`, it calls
-`TabScope.setup(...)` exactly once, wiring up the tab-init callback that seeds per-tab values.
+Living in `testapp` and registered via `META-INF/services/com.vaadin.flow.server.VaadinServiceInitListener`,
+it calls the library's `TabScope.setup(...)` exactly once, wiring up the tab-init callback that seeds per-tab values.
 
 ## Ordering: the tab-init callback runs before any route/layout is built
 

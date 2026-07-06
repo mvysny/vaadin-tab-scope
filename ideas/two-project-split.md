@@ -1,6 +1,9 @@
 # Idea: split into a published library + a demo app (two-project Gradle build)
 
-**Status:** proposal — design agreed; not yet implemented. Modeled on the proven
+**Status:** implemented — the two-module split, package rename, SPI relocation, slf4j logging, and
+library tests are in place and `./gradlew build` is green. What remains is Maven Central release
+plumbing (signing key + Central credentials); the build config is ready but untested against a real
+publish. Modeled on the proven
 [`jdbi-orm-vaadin`](https://gitlab.com/mvysny/jdbi-orm-vaadin) two-project layout.
 **Relates to:** [CLAUDE.md](../CLAUDE.md) → "Project purpose"; [INTERNALS.md](../INTERNALS.md) →
 "The three pieces".
@@ -138,9 +141,22 @@ license, developer, scm), and signing. The library module invokes `publishing("t
   `implementation(libs.slf4j.api)`; both the library tests and `testapp` pull in
   `slf4j-simple` to see the output.
 
-## Open items before implementing
+## Done
 
-- ~~Rename repo `vaadin-tab-scope-example` → `vaadin-tab-scope` (and the GitHub URL).~~ Done: homepage
-  and git remote are now `github.com/mvysny/vaadin-tab-scope`. (Local working-dir name is cosmetic.)
-- Move + rename packages; split the two SPI files into `testapp`.
-- Add library-level tests for `TabScope` lifecycle/orphan-cleanup (today's tests are view-level).
+- ~~Rename repo `vaadin-tab-scope-example` → `vaadin-tab-scope` (and the GitHub URL).~~ Homepage and
+  git remote are now `github.com/mvysny/vaadin-tab-scope`. (Local working-dir name is cosmetic.)
+- ~~Move + rename packages; split the two SPI files into `testapp`.~~ Library is
+  `com.github.mvysny.vaadin.tabscope`, demo is `testapp`, both SPI files live in `testapp`.
+- ~~Add library-level tests for `TabScope` lifecycle/orphan-cleanup.~~ `TabScopeTest` in `tab-scope`
+  with test-scope SPI wiring exercises lifecycle + `@TabScoped` caching in isolation.
+- ~~Logging via slf4j-api.~~ `TabScope` logs created/orphaned/destroyed at debug.
+
+## Remaining (real follow-ups, not part of the split)
+
+- Wire up Maven Central publishing credentials/signing and do a first `0.1` release. The root build
+  has the `ext["publishing"]` + `nexusPublishing` config ready but it has not been run against a
+  real publish.
+- `jakarta.servlet-api` had to be added as `compileOnly` to the library (Vaadin declares the servlet
+  API as `provided`, but `VaadinSession` implements `HttpSessionBindingListener`, needed at compile).
+- Per this repo's convention (implemented ideas get absorbed into INTERNALS.md and the idea file
+  deleted), consider folding this file into INTERNALS.md once the release lands.

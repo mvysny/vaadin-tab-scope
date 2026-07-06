@@ -1,7 +1,14 @@
-# Vaadin Tab-Scope Example App
+# Vaadin Tab Scope
 
-A demo project demoing a proper way of having tab-scoped values and routes.
-No Spring - pure Servlet project.
+A small library giving Vaadin Flow apps **tab-scoped values** and **tab-scoped routes**.
+No Spring - pure Servlet.
+
+This repo is a two-module Gradle build:
+
+- **`tab-scope/`** — the reusable library (published to Maven Central as
+  `com.github.mvysny.vaadintabscope:tab-scope`). This is the product.
+- **`testapp/`** — a runnable [Vaadin Boot](https://github.com/mvysny/vaadin-boot) demo app that
+  uses the library and shows the wiring.
 
 In Vaadin 8, things were simple: both `UI` and `UI.init()` worked predictably.
 The UI was instantiated once per tab (when using `@PreserveOnRefresh`), and the init
@@ -25,11 +32,26 @@ those issues. Moreover, the implementation works correctly even without the `@Pr
 > Note: this branch demoes the tab scope for Vaadin 24/25. See the [v23](../../tree/v23) branch for
 > the Vaadin 23 version of this app.
 
-## Running
+## Running the demo
 
 Please see the [Vaadin Boot](https://github.com/mvysny/vaadin-boot#preparing-environment) documentation
-on how you run, develop and package this Vaadin-Boot-based app. In short: `./gradlew run`, then open
+on how you run, develop and package this Vaadin-Boot-based app. In short: `./gradlew :testapp:run`, then open
 <http://localhost:8080>.
+
+## Wiring the library into your app
+
+The library deliberately ships **no** `META-INF/services` files, so that it stays compatible with a
+future Spring integration (Vaadin allows only one `InstantiatorFactory`, and Spring registers its
+own). A plain Servlet / Vaadin-Boot app registers the two pieces itself:
+
+1. `src/main/resources/META-INF/services/com.vaadin.flow.di.InstantiatorFactory` containing:
+   ```
+   com.github.mvysny.vaadin.tabscope.TabScopedRouteInstantiator$Factory
+   ```
+2. `src/main/resources/META-INF/services/com.vaadin.flow.server.VaadinServiceInitListener` pointing
+   at your own listener, which calls `TabScope.setup(...)` (see below).
+
+See the `testapp/` module for both files in context.
 
 ## Tab-scoped values
 

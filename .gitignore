@@ -10,6 +10,18 @@ target
 .classpath
 .project
 .settings
-src/main/frontend/generated
+**/src/main/frontend/generated
+
+# Vaadin build tooling files, generated into the app module (testapp/)
+**/src/main/frontend/generated-flow-imports.js
+**/package.json
+**/package-lock.json
+**/pnpm-lock.yaml
+**/pnpmfile.cjs
+**/tsconfig.json
+**/types.d.ts
+**/vite.config.ts
+**/vite.generated.ts
+**/node_modules
 
 !**/src/main/dev-bundle/webapp/VAADIN/build
