@@ -31,3 +31,8 @@ dependencies {
 application {
     mainClass = "testapp.Main"
 }
+
+// Drop the version from the distribution archive/folder names (testapp.tar, testapp/) so the
+// Dockerfile can reference stable paths that don't change on every version bump.
+tasks.named<Tar>("distTar") { archiveVersion = "" }
+tasks.named<Zip>("distZip") { archiveVersion = "" }
