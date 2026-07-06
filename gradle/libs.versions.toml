@@ -14,11 +14,7 @@ vaadin-core = { module = "com.vaadin:vaadin-core", version.ref = "vaadin" }
 vaadin-dev = { module = "com.vaadin:vaadin-dev", version.ref = "vaadin" }
 junit = "org.junit.jupiter:junit-jupiter-engine:6.0.3"
 junit-params = "org.junit.jupiter:junit-jupiter-params:6.0.3"
-# 2.7.1-SNAPSHOT is required for KaribuConfig.unloadBeaconTiming (EAGER/LATE/NEVER), used to
-# reproduce all three F5 unload-beacon orderings in TabScopeReloadTimingTest. Until 2.7.1 is
-# released, this resolves against a local Karibu-Testing checkout via the composite build wired
-# up in settings.gradle.kts (see the notes there); once 2.7.1 ships, pin the release here.
-kaributesting = "com.github.mvysny.kaributesting:karibu-testing-v24:2.7.1-SNAPSHOT"
+kaributesting = "com.github.mvysny.kaributesting:karibu-testing-v24:2.7.1"
 
 [plugins]
 vaadin = { id = "com.vaadin", version.ref = "vaadin" }

@@ -352,10 +352,8 @@ the library directly:
 - **`@PreserveOnRefresh`** — Flow ignores the beacon, so the timing has no effect; a separate
   parameterized case confirms the scope survives and one UI remains regardless of the flag.
 
-Because 2.7.1 is unreleased, the build consumes it from a local Karibu-Testing checkout via a
-Gradle composite build (`settings.gradle.kts`); see the notes there. What still isn't testable
-this way is the *timing* itself (the race is deterministic here) or `window.name` preservation —
-those remain manual across real browsers.
+What still isn't testable this way is the *timing* itself (the race is deterministic here) or
+`window.name` preservation — those remain manual across real browsers.
 
 ### Routing, layout caching, and lifecycle coverage
 
@@ -385,6 +383,5 @@ getting two independent scopes — is now tested via Karibu-Testing's `MockBrows
   different instance per tab, and closing one tab leaves the other's scope intact.
 - `TabIdentityTest`, and the `reapInactiveUIs()` cases above, also lean on `MockBrowser`.
 
-These use the unreleased Karibu `2.7.1-SNAPSHOT` (`MockBrowser`, `KaribuConfig.windowName`,
-`MockVaadin.reapInactiveUIs()`) via the composite build; the migration checklist for the 2.7.1
-release is in [ideas/new-karibu.md](ideas/new-karibu.md).
+These use `MockBrowser`, `KaribuConfig.windowName` and `MockVaadin.reapInactiveUIs()` from
+Karibu-Testing 2.7.1 (a normal Maven Central dependency).
