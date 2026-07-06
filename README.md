@@ -40,6 +40,14 @@ on how you run, develop and package this Vaadin-Boot-based app. In short: `./gra
 
 ## Wiring the library into your app
 
+Add the dependency (published to Maven Central):
+
+```kotlin
+dependencies {
+    implementation("com.github.mvysny.vaadintabscope:tab-scope:0.1")
+}
+```
+
 The library deliberately ships **no** `META-INF/services` files, so that it stays compatible with a
 future Spring integration (Vaadin allows only one `InstantiatorFactory`, and Spring registers its
 own). A plain Servlet / Vaadin-Boot app registers the two pieces itself:
