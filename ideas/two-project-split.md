@@ -140,6 +140,7 @@ license, developer, scm), and signing. The library module invokes `publishing("t
 
 ## Open items before implementing
 
-- Rename repo `vaadin-tab-scope-example` → `vaadin-tab-scope` (and the GitHub URL).
+- ~~Rename repo `vaadin-tab-scope-example` → `vaadin-tab-scope` (and the GitHub URL).~~ Done: homepage
+  and git remote are now `github.com/mvysny/vaadin-tab-scope`. (Local working-dir name is cosmetic.)
 - Move + rename packages; split the two SPI files into `testapp`.
 - Add library-level tests for `TabScope` lifecycle/orphan-cleanup (today's tests are view-level).
