@@ -48,6 +48,8 @@ Tab scopes are **not** removed when the browser tab closes — only when the who
 
 **testapp:** `AbstractAppTest` spins up `MockVaadin` with auto-discovered routes and resets `ApplicationServiceInitListener.counter` so counter-dependent assertions are deterministic. New view tests should extend it.
 
-**tab-scope:** `TabScopeTest` exercises the library in isolation — its `src/test/resources/META-INF/services` ships test-only SPI wiring (the `InstantiatorFactory` + a `TestInitListener`) plus demo routes, so the library's lifecycle/orphan-cleanup and `@TabScoped` caching are tested without the app.
+**tab-scope:** `TabScopeTest` exercises the library in isolation — its `src/test/resources/META-INF/services` ships test-only SPI wiring (the `InstantiatorFactory` + a `TestInitListener`) plus demo routes, so the library's lifecycle/orphan-cleanup and `@TabScoped` caching are tested without the app. `TabScopeReloadTimingTest` additionally drives all three F5 unload-beacon orderings (`EAGER`/`LATE`/`NEVER`) plus the `@PreserveOnRefresh` path via `KaribuConfig.unloadBeaconTiming` — see INTERNALS.md ("Reproducing the unload-beacon reload orderings").
+
+**Composite build for the unreleased Karibu:** the beacon-timing API requires Karibu-Testing `2.7.1-SNAPSHOT`, resolved from a local checkout via a Gradle composite build. `settings.gradle.kts` `includeBuild`s `../vok/karibu-testing` by default (override with `-PkaribuTestingDir=/path`); this checkout is currently required to build. Drop the composite build, the snapshot repo, and pin the release once 2.7.1 ships.
 
 There is no browser/Selenium layer in this repo — the `window.name`-preservation behavior described above is only testable manually across real browsers.

@@ -329,3 +329,25 @@ There is no browser/Selenium layer in this repo — the `window.name`-preservati
 is only testable manually across real browsers. `AbstractAppTest` spins up `MockVaadin` with
 auto-discovered routes and resets `ApplicationServiceInitListener.counter` so counter-dependent
 assertions are deterministic. New view tests should extend it.
+
+### Reproducing the unload-beacon reload orderings
+
+The zero-UI gap analyzed under "Why the timer is necessary" *is* reproducible browserlessly.
+Karibu-Testing 2.7.1's `KaribuConfig.unloadBeaconTiming` (`UnloadBeaconTiming.EAGER` / `LATE` /
+`NEVER`) controls when the simulated unload beacon closes the old UI during an F5
+`Page.reload()`, letting `tab-scope`'s `TabScopeReloadTimingTest` drive each reload path against
+the library directly:
+
+- **EAGER** — old UI detached *before* the new one attaches: the zero-UI gap. The test asserts the
+  scope's destroy listener does **not** fire, i.e. the 60 s grace period is what carries it across
+  the gap, and that exactly one UI remains afterward.
+- **LATE** — new UI attaches *before* the old detaches: the UI set never empties.
+- **NEVER** — beacon lost, old UI lingers: the session transiently holds **two** UIs (the "0 or 2
+  UIs" case on `TabScope.Lifecycle.uis`).
+- **`@PreserveOnRefresh`** — Flow ignores the beacon, so the timing has no effect; a separate
+  parameterized case confirms the scope survives and one UI remains regardless of the flag.
+
+Because 2.7.1 is unreleased, the build consumes it from a local Karibu-Testing checkout via a
+Gradle composite build (`settings.gradle.kts`); see the notes there. What still isn't testable
+this way is the *timing* itself (the race is deterministic here) or `window.name` preservation —
+those remain manual across real browsers.

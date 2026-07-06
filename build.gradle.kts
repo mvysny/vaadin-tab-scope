@@ -15,6 +15,12 @@ allprojects {
 
     repositories {
         mavenCentral()
+        // Forward-looking fallback source for Karibu-Testing 2.7.1-SNAPSHOT: only helps if a
+        // snapshot is actually deployed here — today none is, so the local composite build in
+        // settings.gradle.kts is what resolves it. Remove once 2.7.1 is on Maven Central.
+        maven("https://central.sonatype.com/repository/maven-snapshots/") {
+            mavenContent { snapshotsOnly() }
+        }
     }
 }
 
