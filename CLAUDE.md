@@ -34,7 +34,7 @@ Tab identity depends on the browser preserving `window.name` across navigation. 
 
 ### Cleanup is deliberately partial
 
-Tab scopes are **not** removed when the browser tab closes — only when the whole session is destroyed, or when a scope is observed orphaned for >60s during another request. This mirrors `vaadin-spring`'s `VaadinRouteScope` behavior. The cleanup mechanics are documented in INTERNALS.md ("Cleanup"); a proposed timer-free alternative is in ideas/retire-cleanup-timeout.md. Revisit those before changing cleanup.
+Tab scopes are **not** removed when the browser tab closes — only when the whole session is destroyed, or when a scope is observed orphaned for >60s during another request. This mirrors `vaadin-spring`'s `VaadinRouteScope` behavior. The cleanup mechanics — and why the grace-period timer can't be removed (the unload-beacon race on non-`@PreserveOnRefresh` reloads) — are documented in INTERNALS.md ("Cleanup" → "Why the timer is necessary"). Revisit that before changing cleanup.
 
 ## Testing
 

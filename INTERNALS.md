@@ -2,7 +2,8 @@
 
 This document collects the hard-won, investigated facts about how tab scoping is implemented
 on top of Vaadin Flow, and *why* each design choice is the way it is. The user-facing
-kick-start lives in [README.md](README.md); forward-looking proposals live in [ideas/](ideas/).
+kick-start lives in [README.md](README.md); forward-looking design proposals, when there are any,
+go under `ideas/`.
 
 ## The problem
 
@@ -104,21 +105,88 @@ the scope is marked orphaned (`orphanedSince = now`). It is only actually closed
 been orphaned for longer than `CLEANUP_DURATION_MS` (**60 seconds**) — long enough for the
 reload's new UI to spring to life and re-attach, which clears `orphanedSince`.
 
-**Do not shorten this without considering reload races.** The grace period is what makes the
-0-UIs-during-reload window safe.
+**Do not shorten this without considering reload races**, and do not try to replace it with
+"reap the moment the UI set empties" — the next subsection explains why that is unsafe.
 
-The concrete mechanism that creates that 0-UI window is the **unload beacon** (Vaadin 24.1+). On
-`pagehide` the client unconditionally sends `navigator.sendBeacon(uidlUrl, {"UNLOAD": true})` — on
-a plain F5 reload, not just on tab close. The server (`ServerRpcHandler#handleUnloadBeaconRequest`)
-then `ui.close()`es the old UI **unless** its active route/layout is `@PreserveOnRefresh`, in which
-case the beacon is ignored. Because the beacon and the new tab's bootstrap request are independent
-requests (ordered only by the session lock), on a **non-`@PreserveOnRefresh`** reload the beacon
-can close the old UI *before* the new UI is created — a real interval with zero live UIs for the
-window name. The grace period exists to survive exactly that interval. (Absent the beacon, the old
-UI would instead linger ~15.5 min until heartbeat timeout, so there would be no gap — the beacon is
-what makes the timer necessary.) This is also why the timer cannot simply be replaced by
-"reap when the UI set empties": see [ideas/retire-cleanup-timeout.md](ideas/retire-cleanup-timeout.md),
-which investigates and rejects that for the general (annotation-agnostic) case.
+### Why the timer is necessary (and can't be replaced by reap-on-empty)
+
+It is tempting to drop the timer and simply close a scope the instant its live-UI set becomes
+empty — event-driven and correct-by-construction, no heuristic. This does **not** work in the
+general case. The reason is that a page reload retires the old UI through **two independent
+mechanisms**, and only one of them is gap-free. This was verified against the Flow **25.2.1**
+sources (`flow-server-25.2.1-sources.jar` + `flow-client-25.2.1.jar`).
+
+**Path 1 — the navigation path (gap-free).** A reload is a two-request dance:
+
+- *Request A — bootstrap (`?v-r=init`):* `BootstrapHandler#createAndInitUI` builds the new UI in
+  the order `extractAndStoreBrowserDetails` → `session.addUI` → `fireUIInitListeners`. Since Flow
+  25.2, the browser sends `window.name` (as the `v-wn` param) on *this* request, and
+  `extractAndStoreBrowserDetails` stores it on the new UI **before** `addUI`. So the new UI's
+  `window.name` is known synchronously here, and `Page#retrieveExtendedClientDetails`
+  short-circuits synchronously — meaning `TabScope.init`'s callback (hence `lifecycle.add(newUI)`)
+  runs *within request A*, with no round-trip.
+- *Request B — navigation UIDL:* with `@PreserveOnRefresh`, `AbstractNavigationStateRenderer`
+  teleports the component chain to the new UI and calls `prevUi.close()` as its **last** step.
+  Without it, the old UI is **not** closed by navigation at all and lingers, inactive, until
+  `VaadinService#closeInactiveUIs` reaps it after `heartbeatInterval × 3.1` (default ≈ 15.5 min).
+
+Considering only this path, `add(newUI)` (request A) always precedes any `remove(oldUI)`, so the
+set never empties on reload. If this were the whole story, the timer *could* go.
+
+**Path 2 — the unload beacon (reopens the gap).** Vaadin 24.1 added an eager UI-close beacon:
+
+- *Client:* a `pagehide` listener **unconditionally** sends
+  `navigator.sendBeacon(uidlUrl, {"UNLOAD": true})`. `pagehide` fires on a plain **reload**, not
+  only on tab close, and there is no client-side guard for reload or for `@PreserveOnRefresh`.
+  (`beforeunload` is also registered but only sets an internal "unloading" flag — it does not send
+  the beacon.)
+- *Server (`ServerRpcHandler#handleUnloadBeaconRequest`):* on receiving the beacon it calls
+  `ui.close()` on the old UI **unless** that UI's active route/layout chain is
+  `@PreserveOnRefresh`, in which case it logs "Eager UI close ignored" and does nothing.
+
+The beacon and bootstrap request A are independent HTTP requests, serialized server-side only by
+the `VaadinSession` lock — with **no ordering guarantee**. So on a **non-`@PreserveOnRefresh`**
+reload the beacon can win the race:
+
+```
+beacon → old UI ui.close()   (old UI now isClosing / inactive)
+        ── zero live UIs for this window.name ──
+request A → new UI created, window.name registered
+```
+
+During that interval the scope genuinely has no live UI, even though the tab is merely reloading.
+Reaping on empty would kill a live scope. The grace period exists to survive exactly this window.
+
+Note the irony: **without** the beacon, even the non-preserve reload would be gap-free (the old UI
+would linger ~15.5 min). The beacon is precisely what *manufactures* the reload gap — and thus
+what makes the timer necessary.
+
+| Reload path | Old UI retired by | Zero-UI gap? | Timer needed? |
+|---|---|---|---|
+| With `@PreserveOnRefresh` | preserve-nav, after new UI holds the chain; beacon **ignored** | No | No |
+| Without `@PreserveOnRefresh` | unload beacon (`ui.close()`), can beat bootstrap | **Yes** | **Yes** |
+
+Because a scope's route at reload time may or may not be `@PreserveOnRefresh`, and the project
+deliberately stays annotation-agnostic (see "Relationship to `@PreserveOnRefresh`" below),
+**the timer must remain the general mechanism.** Removing it would require mandating
+`@PreserveOnRefresh` on every tab-scoped route/layout, which we rejected.
+
+### Alternatives considered (and rejected)
+
+- **Shorten, don't remove.** The gap is a request-race window (tens of milliseconds to a few
+  seconds on a bad connection), not minutes, so `CLEANUP_DURATION_MS` could in principle be tuned
+  down. But shortening trades robustness on slow reloads for marginally faster cleanup — low
+  value, real risk. Left at 60 s.
+- **Hybrid (per-scope).** Skip the timer only for scopes whose current UI is a
+  `@PreserveOnRefresh` target, keep the timer otherwise. Rejected: a scope's route changes over
+  its lifetime, so it cannot be statically classified as preserve/non-preserve; the bookkeeping
+  ends up more fragile than the timer it would replace.
+- **Successor detection as an *optimization* (not a replacement).** On detach, if a non-closing UI
+  with the same `window.name` already exists in `VaadinSession.getUIs()`, skip straight to "not
+  orphaned"; otherwise fall back to the timer. This would reap faster on the preserve path while
+  staying safe on the non-preserve path, but it adds an O(#UIs) scan (Flow keeps **no**
+  UI-by-`windowName` index — see references) plus complexity, for marginal gain. Possible future
+  refinement, not worth it today.
 
 ### When cleanup actually runs
 
@@ -144,6 +212,36 @@ the old orphaned scope is free to be collected. (The beacon is flaky in practice
 `TabScope.addDestroyListener` callbacks fire before `values` are cleared, but **must not be
 relied upon**: when a session times out and is closed by the servlet container, Vaadin's session
 destroy listeners are not called at all, so neither are ours.
+
+### Source references (Flow 25.2.1)
+
+The cleanup analysis above was verified against `flow-server-25.2.1-sources.jar` and
+`flow-client-25.2.1.jar`. Exact locations:
+
+- **Beacon, client** (GWT `FlowClient.js`): `pagehide` listener → `navigator.sendBeacon(url,
+  {"UNLOAD": true})`, sent unconditionally; `beforeunload` only sets an "unloading" flag. (Symbols
+  are minified, but the event strings, `navigator.sendBeacon`, and the `{"UNLOAD":true}` payload
+  are verbatim and line up with the server-side handler below.)
+- **Beacon, server:** `ServerRpcHandler#handleUnloadBeaconRequest` (468–478),
+  `#isPreserveOnRefreshTarget` (525–529), `RpcRequest#isUnloadBeaconRequest` (203–205);
+  `ApplicationConstants.UNLOAD_BEACON = "UNLOAD"` (268, `@since 24.1`).
+- **Bootstrap / `window.name`:** `BootstrapHandler#createAndInitUI` (1349) →
+  `extractAndStoreBrowserDetails` (1380) → `session.addUI` (1385) → `fireUIInitListeners` (1387);
+  `ExtendedClientDetails.updateFromValues` reads the `v-wn` param (556). (`v-wn`-on-bootstrap is a
+  Flow 25.2+ behavior — `updateFromValues` is `@since 25.3`, `updateFromJson` `@since 25.2`; older
+  Flow fetched `window.name` via a separate async round-trip, so this ordering must be re-verified
+  before relying on it on the v23/24 branches.)
+- **Navigation / preserve:** `AbstractNavigationStateRenderer#disconnectElements` (1055–1073,
+  `prevUi.close()` at 1071), the non-preserve `else` branch of `#populateChain` (328–339).
+- **ECD synchronous short-circuit:** `Page#retrieveExtendedClientDetails` (782–791).
+- **UI close flag:** `UI#close` (375–376, sets `closing = true`).
+- **Inactive-UI reaping:** `VaadinService#closeInactiveUIs` (1764–1772), `#removeClosedUIs`
+  (1748), `#isUIActive` (1832), `#getHeartbeatTimeout` (1791) = `heartbeatInterval × 3.1`;
+  `DefaultDeploymentConfiguration.DEFAULT_HEARTBEAT_INTERVAL` = 300 (72) → ≈ 930 s ≈ 15.5 min.
+- **UI enumeration:** `VaadinSession#getUIs` (590) — keyed by UI id; there is no window-name index,
+  and a UI's window name is only reachable via
+  `ui.getInternals().getExtendedClientDetails().getWindowName()` (can be null on non-standard
+  bootstrap requests that omit `v-sw`).
 
 ## Relationship to `@PreserveOnRefresh` (and why it is not required)
 
@@ -205,8 +303,8 @@ appears — which is exactly what the timer covers. So:
 - **Implementation layer** — `@PreserveOnRefresh`, *when present*, offers a stronger UI-lifecycle
   guarantee we may exploit as an optimization, always with a fallback for when it is absent.
 
-See [ideas/retire-cleanup-timeout.md](ideas/retire-cleanup-timeout.md) for that optimization and
-its caveats.
+The full analysis of why the timer can't simply be dropped (the unload-beacon race, per-path
+table, and the alternatives that were rejected) is under "Cleanup" → "Why the timer is necessary".
 
 Sources: [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468),
 [Vaadin docs — Preserving State on Refresh](https://vaadin.com/docs/latest/flow/advanced/preserving-state-on-refresh),

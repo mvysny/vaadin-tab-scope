@@ -20,7 +20,7 @@ those issues. Moreover, the implementation works correctly even without the `@Pr
 - [Live demo at v-herd](https://v-herd.eu/vaadin-tab-scope-example)
 - Background: [Tab Scope blog post](https://mvysny.github.io/vaadin-ui-scope/) and [issue #13468](https://github.com/vaadin/flow/issues/13468)
 - **How it actually works, and every investigated fact behind it: see [INTERNALS.md](INTERNALS.md).**
-- Future ideas: see [ideas/](ideas/).
+- Future design proposals, when there are any, go under `ideas/`.
 
 > Note: this branch demoes the tab scope for Vaadin 24/25. See the [v23](../../tree/v23) branch for
 > the Vaadin 23 version of this app.
