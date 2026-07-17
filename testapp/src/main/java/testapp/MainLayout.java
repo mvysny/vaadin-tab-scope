@@ -15,6 +15,9 @@ import org.jetbrains.annotations.NotNull;
  * The main layout of the app, adds navigation menu.
  */
 public class MainLayout extends AppLayout {
+    // retrieveExtendedClientDetails is deprecated in Flow 25.x but kept for the same
+    // cross-version reason as the library's TabScope.init — see INTERNALS ("ECD API").
+    @SuppressWarnings("deprecation")
     public MainLayout() {
         DrawerToggle toggle = new DrawerToggle();
 

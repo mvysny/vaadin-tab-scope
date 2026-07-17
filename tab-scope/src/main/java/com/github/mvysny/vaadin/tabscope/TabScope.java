@@ -261,6 +261,13 @@ public final class TabScope implements Serializable {
      *                        before any route or layout is created or initialized.
      *                        Serves as a replacement for Vaadin 8 UIInitListener.
      */
+    // Deprecated in Flow 25.x in favor of getExtendedClientDetails()/refresh(), but kept on
+    // purpose: retrieveExtendedClientDetails is @since 2.0 and works on every Flow version, while
+    // the replacements are @since 25.0 and eager v-wn-on-bootstrap only @since 25.2. This add-on is
+    // compileOnly against Vaadin so consumers bring their own version — migrating would swap a
+    // deprecation warning for a NoSuchMethodError on pre-25 Vaadins. See INTERNALS ("ECD API: why
+    // the deprecated retrieveExtendedClientDetails").
+    @SuppressWarnings("deprecation")
     private static void init(@NotNull SerializableConsumer<TabScope> tabInitListener) {
         final UI ui = UI.getCurrent();
         if (ui == null) {

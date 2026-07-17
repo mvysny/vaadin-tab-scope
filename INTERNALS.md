@@ -122,6 +122,31 @@ This is fragile ("hopefully our receiver runs first"), but it is currently the o
 hook point. It is exactly why [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468)
 asks for a proper per-tab init callback.
 
+### ECD API: why the deprecated `retrieveExtendedClientDetails`
+
+`TabScope.init` (and the testapp `MainLayout`) fetch the window name via
+`Page.retrieveExtendedClientDetails(receiver)`, which Flow 25.x **deprecates** in favor of the
+synchronous `Page.getExtendedClientDetails()` plus `ExtendedClientDetails.refresh(...)`. We keep the
+deprecated call on purpose — migrating would trade a compile-time warning for a **runtime
+`NoSuchMethodError` on older Vaadins**, which is strictly worse for a version-agnostic add-on:
+
+| API | `@since` |
+|---|---|
+| `retrieveExtendedClientDetails(receiver)` (deprecated) | 2.0 — every Flow version |
+| `Page.getExtendedClientDetails()`, `ExtendedClientDetails.refresh(...)` | 25.0 |
+| eager `v-wn`-on-bootstrap (`ExtendedClientDetails.updateFromValues`) | 25.2 / 25.2.1 |
+
+`tab-scope` is `compileOnly(vaadin-core)` precisely so consumers bring their own Vaadin version, so a
+published jar compiled against the `@since 25.0` getters would `NoSuchMethodError` the moment
+`init()` runs on a consumer's Vaadin 24.x. The deprecated method (`@since 2.0`) has no such floor,
+and it also self-adjusts across the 25.0/25.1 → 25.2 boundary: pre-25.2 it does the async roundtrip
+(and participates in the navigation deferral the "Ordering" section relies on), 25.2+ it
+short-circuits synchronously off the eagerly-sent `v-wn`. `getExtendedClientDetails()` never returns
+null (it lazily builds a placeholder with dims `-1` and `windowName == null`, `UIInternals`), so the
+hazard is linkage, not an NPE. Both call sites carry `@SuppressWarnings("deprecation")` with a
+pointer here; don't "clean them up" without raising the Vaadin floor to 25.2. Verified against Flow
+25.2.4 sources.
+
 ## Tab identity fragility: `window.name`
 
 Tab identity depends on the browser preserving `window.name` across navigation. The following
