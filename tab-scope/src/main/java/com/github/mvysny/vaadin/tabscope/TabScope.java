@@ -185,13 +185,13 @@ public final class TabScope implements Serializable {
     }
 
     /**
-     * Adds a tab scope destroy listener. The listeners will be called before
-     * {@link #getValues() values} are cleared.
+     * Adds a tab scope destroy listener, called before {@link #getValues() values} are cleared.
      * <br/>
-     * Important: don't rely on the listener being called. For example,
-     * it may not be called when the session is timed out and closed by the servlet
-     * container, since in this case {@link VaadinSession#addSessionDestroyListener(SessionDestroyListener) Vaadin session destroy listeners}
-     * aren't being called at all!
+     * Fires on graceful teardown — including an ordinary idle session timeout, which reaches us
+     * through {@link VaadinSession}'s {@code HttpSessionBindingListener} (no listener registration
+     * needed). Best-effort only against a JVM crash / {@code kill -9} or a deserialized-but-never-used
+     * session, which fire nothing; don't rely on it for correctness-critical cleanup that a crash
+     * could skip. See <a href="https://github.com/mvysny/vaadin-boot/issues/39">mvysny/vaadin-boot#39</a>.
      *
      * @param listener scope destroy listener to call.
      * @return registration

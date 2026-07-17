@@ -99,10 +99,12 @@ TabScope.setup(ts -> {
 });
 ```
 
-The listener fires before the scope's values are cleared. **It's best-effort** — it won't run
-when the servlet container times out the session (Vaadin fires no session-destroy events then),
-so don't depend on it for correctness. See [INTERNALS.md](INTERNALS.md) → "Destroy listeners are
-best-effort".
+The listener fires before the scope's values are cleared. An ordinary idle session timeout **does**
+run it — Vaadin fires session-destroy on container timeout via `HttpSessionBindingListener`, no
+listener registration required ([mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39)
+is the source of truth). It's still **best-effort** for the residual gaps — a JVM crash / `kill -9`,
+or a session deserialized-but-never-used before it expires — so don't depend on it for correctness.
+See [INTERNALS.md](INTERNALS.md) → "Destroy listeners are best-effort".
 
 See the `MainView` and `MainViewNoAppLayout` views for a regular route (prototype-scoped:
 new instance every time) accessing tab-scoped values.

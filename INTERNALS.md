@@ -277,9 +277,36 @@ the old orphaned scope is free to be collected. (The beacon is flaky in practice
 
 ### Destroy listeners are best-effort
 
-`TabScope.addDestroyListener` callbacks fire before `values` are cleared, but **must not be
-relied upon**: when a session times out and is closed by the servlet container, Vaadin's session
-destroy listeners are not called at all, so neither are ours.
+`TabScope.addDestroyListener` callbacks fire before `values` are cleared. An **ordinary idle
+session timeout does invoke them** — contrary to what this section previously claimed. The bridge
+is `HttpSessionBindingListener`, not a registered `HttpSessionListener`, so it needs no `web.xml`
+or programmatic registration and works uniformly (embedded Jetty / Vaadin Boot included). Verified
+against Flow 25.2.4 and confirmed empirically in
+[mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39) (the source of truth):
+
+- `VaadinSession implements HttpSessionBindingListener` (`VaadinSession.java:78`). The
+  `VaadinSession` is itself an attribute of the servlet `HttpSession`, so when the container
+  invalidates the session on timeout it unbinds that attribute and calls
+  `VaadinSession.valueUnbound()` (`VaadinSession.java:185`).
+- Timeout runs on the container's reaper thread, outside any Vaadin request, so
+  `VaadinService.getCurrentRequest() == null` and `valueUnbound` takes the `else` branch that calls
+  `service.fireSessionDestroy(this)` directly (`VaadinSession.java:218-220`). If a request *is* in
+  flight, it instead `close()`s and `cleanupSession` fires destroy at request end
+  (`VaadinService.java:1712-1738`). Either way `fireSessionDestroy` (`VaadinService.java:1040`)
+  invokes every `SessionDestroyListener` — including the one `TabScope.setup` registers.
+
+So the callbacks are **more reliable than "best-effort" suggested**, but still not guaranteed. The
+genuine gaps are narrow:
+
+- **JVM crash / `kill -9` / power loss** — no orderly shutdown, nothing fires.
+- **Deserialized-but-never-used session** — a session persisted to disk, restored after a container
+  restart, and expired before any request touched it (transients never refreshed). Flow detects
+  this via the `!isInitialized()` guard at the top of `valueUnbound` (`VaadinSession.java:194-200`)
+  and logs "Session destroy events will not be fired …" before returning.
+
+Treat destroy listeners as reliable for graceful lifecycles (timeout, explicit close, redeploy) and
+as best-effort only against the two gaps above; don't depend on them for correctness-critical
+cleanup that a crash could skip.
 
 ### Source references (Flow 25.2.1)
 
