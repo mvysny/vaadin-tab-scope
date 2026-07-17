@@ -89,6 +89,21 @@ modify the values via `TabScope.getCurrent().getValues()`:
 Object hello = TabScope.getCurrent().getValues().getAttribute("hello");
 ```
 
+If a value you seed in `setup(...)` needs releasing when the tab goes away, register a destroy
+listener on the scope — the natural counterpart to seeding:
+
+```java
+TabScope.setup(ts -> {
+    ts.getValues().setAttribute("hello", counter.incrementAndGet());
+    ts.addDestroyListener(scope -> { /* release whatever "hello" held */ });
+});
+```
+
+The listener fires before the scope's values are cleared. **It's best-effort** — it won't run
+when the servlet container times out the session (Vaadin fires no session-destroy events then),
+so don't depend on it for correctness. See [INTERNALS.md](INTERNALS.md) → "Destroy listeners are
+best-effort".
+
 See the `MainView` and `MainViewNoAppLayout` views for a regular route (prototype-scoped:
 new instance every time) accessing tab-scoped values.
 
