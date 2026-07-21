@@ -71,6 +71,20 @@ public final class TabScope implements Serializable {
     static long CLEANUP_DURATION_MS = 60 * 1000L;
 
     /**
+     * Whether an orphaned scope is reaped promptly by the background {@link ScheduledExecutorService}
+     * (feature B). {@code true} by default.
+     * <br/>
+     * Set to {@code false} to disable the reaper thread entirely and ride only Vaadin's default
+     * UI-closing plus the request-driven sweep and session-destroy backstops — the pre-feature-B
+     * behavior, where a <em>sole last tab</em>'s scope lingers until the session ends rather than
+     * being reaped ~60&nbsp;s after close, and no {@code tab-scope-reaper} thread is ever created.
+     * Everything else (per-tab values, {@code @TabScoped} caching, reaping while other tabs are
+     * active) is unaffected. Read once per orphan, in {@code armReap()}; set it before your app
+     * serves requests.
+     */
+    public static volatile boolean scheduledReapEnabled = true;
+
+    /**
      * Schedules the one-shot orphan reap that fires {@link #CLEANUP_DURATION_MS} after a scope
      * orphans, so a sole last tab is reaped without waiting for another request. Production uses a
      * shared daemon {@link ScheduledExecutorService}; the seam exists <em>solely</em> so tests can
@@ -226,6 +240,9 @@ public final class TabScope implements Serializable {
          * arrives — the mechanism that makes a sole last tab's scope destroy promptly.
          */
         private void armReap() {
+            if (!scheduledReapEnabled) {
+                return; // reaper disabled: fall back to request-driven sweep + session-destroy
+            }
             final VaadinSession session = VaadinSession.getCurrent();
             if (session == null) {
                 // No session to capture. Orphaning normally runs under the lock, so this is not

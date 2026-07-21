@@ -302,11 +302,14 @@ deliberately stays annotation-agnostic (see "Relationship to `@PreserveOnRefresh
 
 Three things drive cleanup:
 
-- **The scheduled reap (always-on).** When a scope orphans, a one-shot task is armed on a shared
+- **The scheduled reap (on by default).** When a scope orphans, a one-shot task is armed on a shared
   daemon `ScheduledExecutorService` for `CLEANUP_DURATION_MS` later. When it fires it hops onto the
   session lock via `session.access` — which self-purges its queue *on the reaper thread* when no
   request holds the lock (`VaadinService#ensureAccessQueuePurged`) — and reaps the scope if it is
-  still orphaned. This is what makes a **sole last tab** reap promptly: with no other tab there is
+  still orphaned. Set the public flag `TabScope.scheduledReapEnabled = false` to switch this off
+  entirely (`armReap()` becomes a no-op, no reaper thread is created) and fall back to the two
+  request-driven triggers below — the pre-feature-B behavior, for apps that prefer to ride Vaadin's
+  default UI-closing without a background thread. This is what makes a **sole last tab** reap promptly: with no other tab there is
   no future request, yet the timer still fires. The task is cancelled when a UI re-attaches (which
   clears `orphanedSince`) and is idempotent anyway (a no-op if a UI came back). The `ScheduledFuture`
   lives in a `transient` field, so a passivated/reactivated scope simply falls back to the two

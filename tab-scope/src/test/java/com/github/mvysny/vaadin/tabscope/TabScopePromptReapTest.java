@@ -47,6 +47,7 @@ public class TabScopePromptReapTest {
         MockVaadin.tearDown();
         TabScope.reapScheduler = null;
         TabScope.CLEANUP_DURATION_MS = 60 * 1000L; // restore the production grace period
+        TabScope.scheduledReapEnabled = true;      // restore the default (global)
     }
 
     /**
@@ -137,6 +138,32 @@ public class TabScopePromptReapTest {
 
         assertSame(scope, TabScope.getCurrent(), "the reattach kept the same scope");
         assertEquals(0, scheduler.pendingCount(), "the beacon-armed reap was cancelled by the reattach");
+    }
+
+    /**
+     * With {@link TabScope#scheduledReapEnabled} = {@code false}, orphaning arms no background reap;
+     * the app rides Vaadin's default closing + request-driven/session-destroy cleanup instead.
+     */
+    @Test
+    public void disablingScheduledReapArmsNoTimer() {
+        TabScope.scheduledReapEnabled = false;
+
+        final String focusedTab = MockBrowser.getCurrentWindowName();
+        MockBrowser.newTab(); // background tab, now focused
+        final String backgroundTab = MockBrowser.getCurrentWindowName();
+        final AtomicInteger destroyed = new AtomicInteger();
+        TabScope.getCurrent().addDestroyListener(ts -> destroyed.incrementAndGet());
+        MockBrowser.switchTo(focusedTab);
+
+        MockBrowser.closeTab(backgroundTab); // orphans the background scope
+
+        assertEquals(0, scheduler.pendingCount(), "no reap is armed when scheduledReapEnabled=false");
+
+        // Even past the grace, no background timer reaps it (there is none to fire).
+        TabScope.CLEANUP_DURATION_MS = -1L;
+        scheduler.fireAll();
+        MockVaadin.clientRoundtrip();
+        assertEquals(0, destroyed.get(), "the orphaned scope is not reaped by any background timer");
     }
 
     /** {@link TabScope#installTabCloseBeacon} swaps the stock UidlRequestHandler in place for ours. */
