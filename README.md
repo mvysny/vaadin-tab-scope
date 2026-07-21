@@ -44,7 +44,7 @@ Add the dependency (published to Maven Central):
 
 ```kotlin
 dependencies {
-    implementation("com.github.mvysny.vaadintabscope:tab-scope:0.1")
+    implementation("com.github.mvysny.vaadintabscope:tab-scope:0.2")
 }
 ```
 
