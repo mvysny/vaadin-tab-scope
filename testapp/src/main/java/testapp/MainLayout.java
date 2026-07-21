@@ -43,7 +43,8 @@ public class MainLayout extends AppLayout {
                 new SideNavItem("Main View", MainView.class),
                 new SideNavItem("Main View (No App Layout)", MainViewNoAppLayout.class),
                 new SideNavItem("Tab Scoped View", TabScopedView.class),
-                new SideNavItem("Tab Scoped View (No App Layout)", TabScopedViewNoAppLayout.class)
+                new SideNavItem("Tab Scoped View (No App Layout)", TabScopedViewNoAppLayout.class),
+                new SideNavItem("@PreserveOnRefresh View", PreserveView.class)
         );
         return sideNav;
     }

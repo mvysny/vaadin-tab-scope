@@ -300,22 +300,50 @@ deliberately stays annotation-agnostic (see "Relationship to `@PreserveOnRefresh
 
 ### When cleanup actually runs
 
-There is no dedicated timer thread. `cleanupOrphans()` runs opportunistically during other
-requests — on every UI init and on every UI detach (`removeUI`). It sweeps all scopes and closes
-any that have been orphaned past the grace period. This means a lone orphaned scope can linger
-past its 60 seconds until *some* request triggers the sweep — but it will never outlive the
-session.
+Three things drive cleanup:
 
-`updateOrphaned()` also drops UIs for which `UI.isClosing()` is true, so a UI already flagged
-for closing does not keep a scope alive.
+- **The scheduled reap (on by default).** When a scope orphans, a one-shot task is armed on a shared
+  daemon `ScheduledExecutorService` for `CLEANUP_DURATION_MS` later. When it fires it hops onto the
+  session lock via `session.access` — which self-purges its queue *on the reaper thread* when no
+  request holds the lock (`VaadinService#ensureAccessQueuePurged`) — and reaps the scope if it is
+  still orphaned. Set the public flag `TabScope.scheduledReapEnabled = false` to switch this off
+  entirely (`armReap()` becomes a no-op, no reaper thread is created) and fall back to the two
+  request-driven triggers below — the pre-feature-B behavior, for apps that prefer to ride Vaadin's
+  default UI-closing without a background thread. This is what makes a **sole last tab** reap promptly: with no other tab there is
+  no future request, yet the timer still fires. The task is cancelled when a UI re-attaches (which
+  clears `orphanedSince`) and is idempotent anyway (a no-op if a UI came back). The `ScheduledFuture`
+  lives in a `transient` field, so a passivated/reactivated scope simply falls back to the two
+  request-driven triggers below.
+- **On UI init / detach (request-driven).** `cleanupOrphans()` still sweeps on every UI init and
+  every UI detach (`removeUI`), so a scope orphaned by one tab is also reaped by activity in another.
+- **Session destroy.** `destroyAllTabScopes()` closes everything as the reliable floor.
 
-### Tab close needs no special handling
+`updateOrphaned()` also drops UIs for which `UI.isClosing()` is true (and does not count
+beacon-closed UIs — see "Tab close"), so such a UI does not keep a scope alive.
 
-When a tab is closed, [the beacon kills the UI eagerly](https://vaadin.com/blog/vaadin-flow-24.1-drastically-reduces-memory-usage),
-which detaches the UI and starts the orphan grace period. Reopening the tab does not preserve
-`window.name`, so it arrives as a brand-new tab scope — there is nothing to reconnect to, and
-the old orphaned scope is free to be collected. (The beacon is flaky in practice — e.g. Vaadin
-25.0 with LibreWolf — but the grace-period sweep catches the scope regardless.)
+The shared reaper thread is a daemon, lazily created, and shut down on `VaadinService` destroy
+(`addServiceDestroyListener`) so a servlet-container redeploy does not leak it.
+
+### Tab close
+
+For a **plain (non-`@PreserveOnRefresh`) route**, tab close needs no special handling:
+[the beacon kills the UI eagerly](https://vaadin.com/blog/vaadin-flow-24.1-drastically-reduces-memory-usage),
+which detaches it and starts the orphan grace period; the scheduled reap then destroys the scope
+~60 s later. Reopening the tab does not preserve `window.name`, so it arrives as a brand-new scope —
+nothing to reconnect to. (The beacon is flaky in practice — e.g. Vaadin 25.0 with LibreWolf — but
+the session-destroy backstop catches the scope regardless.)
+
+For a **`@PreserveOnRefresh` route**, Flow *ignores* the beacon (closing the UI would defeat the
+preserve), so on a sole-tab close nothing detaches the UI and the scope never orphans — it would
+linger until session-destroy. The optional tab-close beacon hook closes this gap: an app wires
+`TabScope.onUnloadBeacon(UI)` into its own `ServerRpcHandler` (via the shipped
+`TabScopeServerRpcHandler` + `TabScope.installTabCloseBeacon`), and the hook starts the grace clock
+**without** closing the UI. A beacon-closed UI stays in `Lifecycle.uis` (so its eventual real detach
+is handled normally) but no longer counts as keeping the scope alive — orphan-eligibility is
+`uis − beaconClosed`. A genuine F5 re-attaches a same-`window.name` UI within the grace and cancels
+the reap; a real close has no such reattach, so the timer reaps it. This was verified end-to-end in
+a real browser (the case Karibu can't reproduce — see "Testing"). See "Relationship to
+`@PreserveOnRefresh`" and README for the wiring.
 
 ### When destroy listeners fire
 
@@ -341,12 +369,13 @@ is verified end-to-end (container idle-timeout → `HttpSession` invalidation �
 Rely on them for graceful lifecycles (timeout, explicit close, redeploy). Two things are worth
 knowing, neither a reason to hedge the feature as "best-effort":
 
-- **Timeout is reliable but not *prompt*.** A container reaps an expired session on its background
-  sweep (Jetty `HouseKeeper`, default every 10 min; Tomcat `backgroundProcessorDelay`, default 10 s)
-  or on the next request bearing the expired cookie — and the idle clock only starts once the tab is
-  closed and Vaadin heartbeats stop (default every 5 min). So on a sole-last-tab close the destroy
-  can lag the close by many minutes. Making it prompt is the subject of
-  `ideas/prompt-last-tab-reap.md` / [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3).
+- **Sole-last-tab close is now prompt; a genuine idle timeout still is not.** When the last tab
+  *closes*, the scheduled reap fires destroy within the grace period (~60 s) — for plain routes via
+  the beacon's eager UI-close, and for `@PreserveOnRefresh` routes via the tab-close beacon hook (see
+  "Cleanup" → "Tab close"). What remains container-paced is a genuine idle *timeout* with the tab
+  still open: destroy then waits for the container's session sweep (Jetty `HouseKeeper`, default
+  every 10 min; Tomcat `backgroundProcessorDelay`, default 10 s) after Vaadin heartbeats stop
+  (default every 5 min). This closes [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3).
 - **An abrupt kill skips it.** `kill -9` / power loss / JVM crash run no orderly shutdown, so nothing
   fires — but that is true of every shutdown hook in every framework, not a property of this listener.
   (One narrow non-crash edge: a session serialized to disk, restored after a container restart, and
@@ -383,12 +412,30 @@ The cleanup analysis above was verified against `flow-server-25.2.1-sources.jar`
   `ui.getInternals().getExtendedClientDetails().getWindowName()` (can be null on non-standard
   bootstrap requests that omit `v-sw`).
 
+The prompt-reap seams (features A/B, verified against Flow **25.2.4**):
+
+- **Beacon hook seam:** `ServerRpcHandler#createRpcHandler` is not overridable directly; the factory
+  is `UidlRequestHandler#createRpcHandler` (protected), and the handler chain is built by
+  `VaadinService#createRequestHandlers` (protected). `ServerRpcHandler#handleUnloadBeaconRequest`
+  (protected) is the only beacon hook; its `RpcRequest#isUnloadBeaconRequest` is **private**, so we
+  replicate it via the public `RpcRequest#getRawJson().has(ApplicationConstants.UNLOAD_BEACON)`. The
+  beacon is a plain `?v-r=uidl` request (`UNLOAD` lives in the JSON body, read once by
+  `UidlRequestHandler#synchronizedHandleRequest`), so there is no HTTP-level marker a front-of-chain
+  `RequestHandler` could catch without consuming the body. (Flow FR for a clean hook:
+  [vaadin/flow#17360](https://github.com/vaadin/flow/issues/17360).)
+- **Off-request reap:** `VaadinSession#access` → `VaadinService#accessSession` →
+  `#ensureAccessQueuePurged` (2469) — when the scheduler thread calls `access` and no thread holds
+  the lock, it acquires and releases the lock itself, and `#runPendingAccessTasks` runs the reap on
+  the scheduler thread. This is why the timer fires with no client request in flight.
+
 ## Relationship to `@PreserveOnRefresh` (and why it is not required)
 
 **Decision: tab scoping is intentionally annotation-agnostic. `@PreserveOnRefresh` is never a
-prerequisite — at most it is an optional implementation optimization.** The README's claim that
-the project "works correctly even without `@PreserveOnRefresh`" is a deliberate design property,
-not an accident.
+prerequisite for tab-scope *semantics*.** The README's claim that the project "works correctly even
+without `@PreserveOnRefresh`" is a deliberate design property, not an accident. What *has* changed
+(see "The cleanup lifecycle" below): for **prompt** cleanup of an app that *does* use
+`@PreserveOnRefresh`, the tab-close beacon hook is load-bearing — a first-class, wired case, no
+longer the "optional optimization" earlier drafts called it.
 
 ### The two are distinct concepts that merely share one primitive
 
@@ -431,20 +478,30 @@ unbuilt and undesigned, and nothing positions `@PreserveOnRefresh` as its precur
 it would therefore inherit its limitations (single-URL, no navigation survival) and bet on a
 design lineage that does not exist.
 
-### The one legitimate dependency is an optimization, not a requirement
+### The cleanup lifecycle: a first-class, wired case (not an optimization)
 
-The single place `@PreserveOnRefresh` genuinely helps is the **cleanup lifecycle**, not the
-scoping semantics. On the preserve path, Flow guarantees a non-closing UI always exists during a
-reload (the 2-UI overlap described under "Cleanup"), which could let us drop the grace-period
-timer. Without the annotation, the old UI lingers to heartbeat timeout and a real zero-UI gap
-appears — which is exactly what the timer covers. So:
+`@PreserveOnRefresh` does not change tab-scope *semantics* — values and `@TabScoped` routes behave
+identically with or without it. Where it matters is the **cleanup lifecycle**, and there it is
+first-class, not the theoretical optimization earlier drafts described:
+
+- On the preserve path Flow **ignores** the unload beacon, so a sole-tab close never orphans the
+  scope on its own; it would linger until session-destroy. Prompt reap therefore *requires* the
+  beacon hook (`onUnloadBeacon`), which starts the grace clock without closing the preserved UI.
+  This is a real, wired feature (see "Cleanup" → "Tab close"), verified end-to-end in a real browser.
+- An app **cannot** simply drop `@PreserveOnRefresh` to sidestep this. Flow offers no public API to
+  move a component tree onto the fresh UI it builds on every F5
+  ([vaadin/flow#25019](https://github.com/vaadin/flow/issues/25019)), so the annotation is currently
+  the *only* supported cross-UI state transfer; dropping it would lose all UI state on every refresh.
+
+So the balance is:
 
 - **Semantic layer** — tab scope must *not* require `@PreserveOnRefresh`. Keep it working both ways.
-- **Implementation layer** — `@PreserveOnRefresh`, *when present*, offers a stronger UI-lifecycle
-  guarantee we may exploit as an optimization, always with a fallback for when it is absent.
+- **Cleanup layer** — the scheduled timer (feature B) always-on covers plain routes and is the
+  general floor; the tab-close beacon hook (feature A), *when the app opts in*, extends prompt reap
+  to the `@PreserveOnRefresh` case. For a preserve app that wants prompt cleanup, A is load-bearing.
 
-The full analysis of why the timer can't simply be dropped (the unload-beacon race, per-path
-table, and the alternatives that were rejected) is under "Cleanup" → "Why the timer is necessary".
+The full analysis of why the timer can't be replaced by reap-on-empty (the unload-beacon race,
+per-path table, and rejected alternatives) is under "Cleanup" → "Why the timer is necessary".
 
 Sources: [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468),
 [Vaadin docs — Preserving State on Refresh](https://vaadin.com/docs/latest/flow/advanced/preserving-state-on-refresh),
@@ -492,8 +549,23 @@ What still isn't testable this way is the *timing* itself (the race is determini
   Reaping is time-gated on `System.currentTimeMillis()` inside our own code, so Karibu can't help.
   `TabScope.CLEANUP_DURATION_MS` is therefore package-private and non-final **solely** so the test
   can shrink it (to `-1`) and let an EAGER reload run straight through orphan → reap → fresh scope
-  in one call; treat it as a 60 s constant in production. This is the one production seam added for
-  testing.
+  in one call; treat it as a 60 s constant in production.
+- `TabScopePromptReapTest` drives the **prompt** reap (features A/B). Its second seam is
+  `TabScope.reapScheduler`: a package-private field that, when set to a `ManualReapScheduler`,
+  captures the armed reap instead of scheduling it on the real daemon executor — so a test can fire
+  it (or assert it was cancelled on reattach) deterministically, with no real sleeps, then drain the
+  `session.access` the reap enqueues via `MockVaadin.clientRoundtrip()`. It covers: the timer alone
+  reaping a closed tab with no further request; a reattach within grace cancelling the reap;
+  `onUnloadBeacon` starting the clock while the `@PreserveOnRefresh` UI stays attached; a
+  beacon-then-F5 keeping the scope; and `installTabCloseBeacon` swapping the stock handler.
+
+  These two — `CLEANUP_DURATION_MS` and `reapScheduler` — are the only production seams added for
+  testing. What Karibu **cannot** do is route a beacon through a real (app-customized)
+  `ServerRpcHandler` — it reimplements the beacon outcome and detaches preserve UIs unconditionally
+  — so the full A HTTP path (custom servlet → `TabScopeUidlRequestHandler` →
+  `TabScopeServerRpcHandler` → `onUnloadBeacon`) is verified with a **real browser** against the
+  `testapp` `/preserve` route, not browserlessly. (Upstream FR to lift this:
+  [mvysny/karibu-testing#210](https://github.com/mvysny/karibu-testing/issues/210).)
 
 ### Multi-tab isolation
 

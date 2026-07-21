@@ -33,6 +33,10 @@ public class TabScopeLifecycleTest {
     public void setupVaadin() {
         tornDown = false;
         TestInitListener.COUNTER.set(0);
+        // These tests reap via the request-driven sweep (reload / reapInactiveUIs); a manual
+        // scheduler keeps the always-on timer from also firing a real off-thread reap under the
+        // shrunk grace period, so the assertions stay deterministic.
+        TabScope.reapScheduler = new ManualReapScheduler();
         MockVaadin.setup(routes);
     }
 
@@ -41,6 +45,7 @@ public class TabScopeLifecycleTest {
         if (!tornDown) {
             MockVaadin.tearDown();
         }
+        TabScope.reapScheduler = null;
         TabScope.CLEANUP_DURATION_MS = 60 * 1000L; // restore the production grace period
     }
 
