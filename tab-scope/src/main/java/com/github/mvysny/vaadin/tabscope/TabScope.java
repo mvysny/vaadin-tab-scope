@@ -12,6 +12,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Stores values in a browser tab scope - all values inserted into {@link #getValues()} are preserved per browser tab.
@@ -65,6 +69,66 @@ public final class TabScope implements Serializable {
      */
     static long CLEANUP_DURATION_MS = 60 * 1000L;
 
+    /**
+     * Schedules the one-shot orphan reap that fires {@link #CLEANUP_DURATION_MS} after a scope
+     * orphans, so a sole last tab is reaped without waiting for another request. Production uses a
+     * shared daemon {@link ScheduledExecutorService}; the seam exists <em>solely</em> so tests can
+     * inject a manual scheduler and fire (or assert cancellation of) the reap deterministically,
+     * without real sleeps (see {@code TabScopeLifecycleTest}).
+     */
+    interface ReapScheduler {
+        /**
+         * @param task     the reap, to run after {@code delayMs}
+         * @param delayMs  delay in milliseconds
+         * @return a handle whose {@link Cancellation#cancel()} prevents the task if it hasn't run yet
+         */
+        @NotNull
+        Cancellation schedule(@NotNull Runnable task, long delayMs);
+
+        interface Cancellation {
+            void cancel();
+        }
+    }
+
+    /**
+     * Test seam: when non-null, used instead of the default daemon executor. Set by tests only.
+     */
+    @Nullable
+    static ReapScheduler reapScheduler = null;
+
+    /**
+     * The shared daemon executor backing the default {@link #scheduler()}. Lazily created, and shut
+     * down + nulled on {@link VaadinService} destroy so a redeploy doesn't leak the thread.
+     */
+    @Nullable
+    private static ScheduledExecutorService reapExecutor = null;
+
+    @NotNull
+    private static synchronized ReapScheduler scheduler() {
+        if (reapScheduler != null) {
+            return reapScheduler;
+        }
+        if (reapExecutor == null) {
+            reapExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                final Thread t = new Thread(r, "tab-scope-reaper");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        final ScheduledExecutorService exec = reapExecutor;
+        return (task, delayMs) -> {
+            final ScheduledFuture<?> future = exec.schedule(task, delayMs, TimeUnit.MILLISECONDS);
+            return () -> future.cancel(false);
+        };
+    }
+
+    private static synchronized void shutdownReaper() {
+        if (reapExecutor != null) {
+            reapExecutor.shutdownNow();
+            reapExecutor = null;
+        }
+    }
+
     @NotNull
     private final Lifecycle lifecycle = new Lifecycle();
 
@@ -89,6 +153,14 @@ public final class TabScope implements Serializable {
 
         private boolean closed = false;
 
+        /**
+         * Handle to the pending one-shot reap armed when this scope orphaned; cancelled if a UI
+         * reattaches. Transient: a scheduled task is not meaningful across passivate/activate, and
+         * the request-driven sweep + session-destroy backstop still cover a deserialized scope.
+         */
+        @Nullable
+        private transient ReapScheduler.Cancellation pendingReap = null;
+
         private void requireNotClosed() {
             if (closed) {
                 throw new IllegalStateException("Invalid state: closed");
@@ -100,6 +172,7 @@ public final class TabScope implements Serializable {
             requireNotClosed();
             uis.add(ui);
             orphanedSince = null;
+            cancelReap();
         }
 
         public void remove(@NotNull UI ui) {
@@ -118,7 +191,39 @@ public final class TabScope implements Serializable {
                 // orphaned - no active UI points to this tab scope.
                 orphanedSince = System.currentTimeMillis();
                 log.debug("{} is now orphaned (no UI points to it); will be reaped after {} ms unless a UI reattaches", TabScope.this, CLEANUP_DURATION_MS);
+                armReap();
             }
+        }
+
+        /**
+         * Schedules the one-shot reap that fires after the grace period even if no other request
+         * arrives — the mechanism that makes a sole last tab's scope destroy promptly.
+         */
+        private void armReap() {
+            final VaadinSession session = VaadinSession.getCurrent();
+            if (session == null) {
+                // No session to capture. Orphaning normally runs under the lock, so this is not
+                // expected; the request-driven sweep + session-destroy backstop still cover us.
+                return;
+            }
+            cancelReap();
+            pendingReap = scheduler().schedule(() -> reap(session), CLEANUP_DURATION_MS);
+        }
+
+        private void cancelReap() {
+            if (pendingReap != null) {
+                pendingReap.cancel();
+                pendingReap = null;
+            }
+        }
+
+        /**
+         * Runs off-request on the scheduler thread. Hops onto the session lock via
+         * {@link VaadinSession#access} (which self-purges its queue when no thread holds the lock,
+         * so this runs without any client request) and reaps the scope if it is still orphaned.
+         */
+        private void reap(@NotNull VaadinSession session) {
+            session.access(this::closeIfOrphaned);
         }
 
         @Override
@@ -146,6 +251,7 @@ public final class TabScope implements Serializable {
            if (!closed) {
                log.debug("Destroying {}", TabScope.this);
                closed = true;
+               cancelReap();
                uis.clear();
                destroyListeners.forEach(it -> it.accept(TabScope.this));
                destroyListeners.clear();
@@ -235,6 +341,9 @@ public final class TabScope implements Serializable {
         service.addSessionInitListener(event -> {
             event.getSession().addSessionDestroyListener(e2 -> destroyAllTabScopes(e2.getSession()));
         });
+        // Shut the shared reaper thread down with the service, so a servlet-container redeploy
+        // doesn't leak it (and its classloader).
+        service.addServiceDestroyListener(e -> shutdownReaper());
         // The UI destroy listeners are added in the init() function.
     }
 
