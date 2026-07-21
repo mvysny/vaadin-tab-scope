@@ -280,6 +280,23 @@ deliberately stays annotation-agnostic (see "Relationship to `@PreserveOnRefresh
   staying safe on the non-preserve path, but it adds an O(#UIs) scan (Flow keeps **no**
   UI-by-`windowName` index — see references) plus complexity, for marginal gain. Possible future
   refinement, not worth it today.
+- **Client-side reload detection.** From the outgoing page a reload and a tab close are
+  indistinguishable — `pagehide`/`beforeunload`/`unload`/`visibilitychange→hidden` all fire in
+  both cases (this is exactly why the beacon can't guard against reload; see Path 2 above). The
+  only clean way to know a load *was* a reload is on the **next** page, via
+  `performance.getEntriesByType("navigation")[0].type === "reload"`. Rejected as a cleanup
+  mechanism because it can't help us: (1) the server already learns "this tab came back" sooner
+  and more reliably from the matching `window.name` (the `v-wn` param on bootstrap request A),
+  which is what clears `orphanedSince` — the nav-timing check is strictly redundant with it and
+  arrives no earlier; (2) it's on the wrong side of the gap — the zero-UI window opens *before*
+  the new page loads, and the close case is silence (no page loads, no navigation entry), so
+  "reload → new load" vs "close → nothing" is exactly what the timer already keys on; (3) it
+  doesn't rescue the painful Safari `window.name`-loss case (see "Tab identity fragility") —
+  knowing "you reloaded" without the identity link can't reconnect the new page to the orphaned
+  scope. Its only real use would be **diagnostic**: logging `nav.type` on the new page could label
+  a scope-recreation as "followed a reload that dropped `window.name`" vs. a genuinely new tab,
+  turning part of the manual browser investigation into a recordable signal — a telemetry nicety,
+  not a behavior change.
 
 ### When cleanup actually runs
 

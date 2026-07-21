@@ -136,6 +136,21 @@ insufficient workaround rather than the solution.
 
 For the full reasoning, see [INTERNALS.md](INTERNALS.md) → "Relationship to `@PreserveOnRefresh`".
 
+## FAQ
+
+### The browser can detect a reload — can't you use that to clean up tab scopes faster?
+
+Not usefully. The browser *can* tell, on the freshly loaded page, that the load was a reload
+(via `performance.getEntriesByType("navigation")[0].type === "reload"`). But a page being torn
+down cannot tell whether it is about to be reloaded or the tab is being closed — both look
+identical from the outgoing side. So that signal only arrives *after* the new page has already
+loaded, at which point tab scoping has already recognized the returning tab by its `window.name`
+and reused its scope — the reload flag tells us nothing new. And a closed tab never loads a new
+page, so there's no signal to read there at all; a scope orphaned by a real close is only ever
+detected by the fact that no new page comes back for it. That's exactly what the built-in
+grace-period cleanup already handles. See [INTERNALS.md](INTERNALS.md) → "Cleanup" for the full
+reasoning.
+
 ## Limitations
 
 The functionality of this prototype depends on browsers preserving the `window.name` value on
