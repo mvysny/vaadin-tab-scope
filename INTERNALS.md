@@ -317,13 +317,14 @@ which detaches the UI and starts the orphan grace period. Reopening the tab does
 the old orphaned scope is free to be collected. (The beacon is flaky in practice — e.g. Vaadin
 25.0 with LibreWolf — but the grace-period sweep catches the scope regardless.)
 
-### Destroy listeners are best-effort
+### When destroy listeners fire
 
-`TabScope.addDestroyListener` callbacks fire before `values` are cleared. An **ordinary idle
-session timeout does invoke them** — contrary to what this section previously claimed. The bridge
-is `HttpSessionBindingListener`, not a registered `HttpSessionListener`, so it needs no `web.xml`
-or programmatic registration and works uniformly (embedded Jetty / Vaadin Boot included). Verified
-against Flow 25.2.4 and confirmed empirically in
+`TabScope.addDestroyListener` callbacks fire before `values` are cleared, and they fire **reliably**
+on every graceful session teardown: explicit `session.close()`, browser-tab close, and an ordinary
+idle session timeout alike. The idle-timeout bridge is `HttpSessionBindingListener` (not a registered
+`HttpSessionListener`), so it needs no `web.xml` or programmatic registration and works uniformly. It
+is verified end-to-end (container idle-timeout → `HttpSession` invalidation → Vaadin
+`SessionDestroyListener`) on **both** embedded Jetty and Tomcat in
 [mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39) (the source of truth):
 
 - `VaadinSession implements HttpSessionBindingListener` (`VaadinSession.java:78`). The
@@ -337,18 +338,20 @@ against Flow 25.2.4 and confirmed empirically in
   (`VaadinService.java:1712-1738`). Either way `fireSessionDestroy` (`VaadinService.java:1040`)
   invokes every `SessionDestroyListener` — including the one `TabScope.setup` registers.
 
-So the callbacks are **more reliable than "best-effort" suggested**, but still not guaranteed. The
-genuine gaps are narrow:
+Rely on them for graceful lifecycles (timeout, explicit close, redeploy). Two things are worth
+knowing, neither a reason to hedge the feature as "best-effort":
 
-- **JVM crash / `kill -9` / power loss** — no orderly shutdown, nothing fires.
-- **Deserialized-but-never-used session** — a session persisted to disk, restored after a container
-  restart, and expired before any request touched it (transients never refreshed). Flow detects
-  this via the `!isInitialized()` guard at the top of `valueUnbound` (`VaadinSession.java:194-200`)
-  and logs "Session destroy events will not be fired …" before returning.
-
-Treat destroy listeners as reliable for graceful lifecycles (timeout, explicit close, redeploy) and
-as best-effort only against the two gaps above; don't depend on them for correctness-critical
-cleanup that a crash could skip.
+- **Timeout is reliable but not *prompt*.** A container reaps an expired session on its background
+  sweep (Jetty `HouseKeeper`, default every 10 min; Tomcat `backgroundProcessorDelay`, default 10 s)
+  or on the next request bearing the expired cookie — and the idle clock only starts once the tab is
+  closed and Vaadin heartbeats stop (default every 5 min). So on a sole-last-tab close the destroy
+  can lag the close by many minutes. Making it prompt is the subject of
+  `ideas/prompt-last-tab-reap.md` / [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3).
+- **An abrupt kill skips it.** `kill -9` / power loss / JVM crash run no orderly shutdown, so nothing
+  fires — but that is true of every shutdown hook in every framework, not a property of this listener.
+  (One narrow non-crash edge: a session serialized to disk, restored after a container restart, and
+  expired before any request touched it — Flow's `!isInitialized()` guard at
+  `VaadinSession.java:194-200` logs "Session destroy events will not be fired …" and returns.)
 
 ### Source references (Flow 25.2.1)
 

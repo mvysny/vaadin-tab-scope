@@ -99,12 +99,15 @@ TabScope.setup(ts -> {
 });
 ```
 
-The listener fires before the scope's values are cleared. An ordinary idle session timeout **does**
-run it — Vaadin fires session-destroy on container timeout via `HttpSessionBindingListener`, no
-listener registration required ([mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39)
-is the source of truth). It's still **best-effort** for the residual gaps — a JVM crash / `kill -9`,
-or a session deserialized-but-never-used before it expires — so don't depend on it for correctness.
-See [INTERNALS.md](INTERNALS.md) → "Destroy listeners are best-effort".
+The listener fires before the scope's values are cleared, and it fires **reliably** on every graceful
+teardown — explicit `session.close()`, browser-tab close, and an ordinary idle session timeout alike.
+On a container timeout Vaadin fires session-destroy via `HttpSessionBindingListener`, needing no
+listener registration; this is verified end-to-end on both embedded Jetty and Tomcat in
+[mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39) (the source of truth). Only an
+abrupt `kill -9` / power loss skips it, exactly as it skips every shutdown hook — not a limitation
+particular to this listener. The one caveat is *promptness*, not reliability: on a sole-last-tab close
+the timeout path can lag by minutes (see [INTERNALS.md](INTERNALS.md) → "When destroy listeners fire"
+and [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3)).
 
 See the `MainView` and `MainViewNoAppLayout` views for a regular route (prototype-scoped:
 new instance every time) accessing tab-scoped values.
