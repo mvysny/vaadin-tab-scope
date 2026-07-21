@@ -16,7 +16,6 @@ import kotlin.jvm.functions.Function0;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -37,14 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * The distinguishing assertion vs. Karibu 2.7.1 (which discarded the UI unconditionally and never
  * ran a real handler): the preserve UI <em>lingers un-closed</em> after the tab closes, yet its
  * scope becomes orphaned via the beacon hook and is reaped by the timer.
- * <p>
- * <strong>Disabled</strong> until Karibu-Testing 2.7.2 is released: the released 2.7.1 discards the
- * UI unconditionally on {@code closeTab} and never runs a real handler, so this test would fail
- * there. Verified green against the local {@code 2.7.2-SNAPSHOT} via a temporary Gradle composite
- * build (`includeBuild(".../karibu-testing")`). To re-run: bump the Karibu dependency to 2.7.2+ (or
- * add the composite build) and remove {@link Disabled}.
  */
-@Disabled("requires Karibu-Testing 2.7.2+ (karibu-testing#210); enable when released")
 public class TabScopeBeaconViaKaribuTest {
     private static Routes routes;
 
