@@ -4,6 +4,7 @@ import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.page.ExtendedClientDetails;
 import com.vaadin.flow.function.SerializableConsumer;
 import com.vaadin.flow.server.*;
+import com.vaadin.flow.server.communication.UidlRequestHandler;
 import com.vaadin.flow.shared.Registration;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -146,6 +147,14 @@ public final class TabScope implements Serializable {
         private final Set<UI> uis = new HashSet<>();
 
         /**
+         * UIs whose tab reported a closing unload beacon (via {@link #onUnloadBeacon(UI)}) but which
+         * Flow keeps attached — the {@code @PreserveOnRefresh} case. Such a UI stays in {@link #uis}
+         * (so its eventual real detach is handled normally) but does <em>not</em> count as keeping the
+         * scope alive, so the grace clock can start without closing the UI. Always a subset of {@link #uis}.
+         */
+        private final Set<UI> beaconClosed = new HashSet<>();
+
+        /**
          * Tracks time since when no UIs point to this tab scope.
          */
         @Nullable
@@ -182,15 +191,32 @@ public final class TabScope implements Serializable {
             if (!uis.remove(Objects.requireNonNull(ui))) {
                 throw new IllegalStateException("Invalid state: uis doesn't contain given ui");
             }
+            beaconClosed.remove(ui);
             updateOrphaned();
+        }
+
+        /**
+         * Marks {@code ui} as beacon-closed (see {@link #beaconClosed}) so the grace clock starts
+         * without closing the UI. No-op unless {@code ui} is actually one of this scope's UIs.
+         */
+        private void markBeaconClosed(@NotNull UI ui) {
+            if (closed || !uis.contains(ui)) {
+                return;
+            }
+            if (beaconClosed.add(ui)) {
+                log.debug("{}: unload beacon for {}; starting the grace clock without closing it", TabScope.this, ui);
+                updateOrphaned();
+            }
         }
 
         private void updateOrphaned() {
             uis.removeIf(UI::isClosing);
-            if (uis.isEmpty() && orphanedSince == null) {
-                // orphaned - no active UI points to this tab scope.
+            beaconClosed.retainAll(uis);
+            final boolean hasLiveUI = uis.stream().anyMatch(ui -> !beaconClosed.contains(ui));
+            if (!hasLiveUI && orphanedSince == null) {
+                // orphaned - no live UI points to this tab scope.
                 orphanedSince = System.currentTimeMillis();
-                log.debug("{} is now orphaned (no UI points to it); will be reaped after {} ms unless a UI reattaches", TabScope.this, CLEANUP_DURATION_MS);
+                log.debug("{} is now orphaned (no live UI points to it); will be reaped after {} ms unless a UI reattaches", TabScope.this, CLEANUP_DURATION_MS);
                 armReap();
             }
         }
@@ -253,6 +279,7 @@ public final class TabScope implements Serializable {
                closed = true;
                cancelReap();
                uis.clear();
+               beaconClosed.clear();
                destroyListeners.forEach(it -> it.accept(TabScope.this));
                destroyListeners.clear();
                values = null;
@@ -437,6 +464,73 @@ public final class TabScope implements Serializable {
             return tabScope;
         }
         throw new IllegalStateException("Trying to retrieve TabScope too early");
+    }
+
+    /**
+     * Notifies the tab scope that the browser tab owning {@code ui} is closing — its unload beacon
+     * has arrived. Starts the scope's grace clock <em>without</em> closing {@code ui}, so a
+     * {@code @PreserveOnRefresh} tab (whose beacon Flow otherwise ignores, leaving the scope
+     * unorphaned until session-destroy) is reaped promptly on a real close, while a genuine F5 still
+     * re-attaches a UI within the grace period and keeps the scope alive. A no-op for a UI that is
+     * not (yet) tab-scoped.
+     * <br/>
+     * The library does not observe the beacon itself — Vaadin exposes no clean hook, and
+     * self-registering a {@link VaadinService} would break Spring apps. Wire this from your own
+     * {@link com.vaadin.flow.server.communication.ServerRpcHandler}; the ready-made
+     * {@link TabScopeServerRpcHandler} + {@link #installTabCloseBeacon(java.util.List)} do exactly
+     * that. Must be called under the session lock, as beacon handling is.
+     *
+     * @param ui the UI whose browser tab is closing.
+     */
+    public static void onUnloadBeacon(@NotNull UI ui) {
+        Objects.requireNonNull(ui, "ui");
+        final VaadinSession session = ui.getSession();
+        if (session == null) {
+            return; // already detached: nothing to do
+        }
+        if (!session.hasLock()) {
+            throw new IllegalStateException("Invalid state: session not locked");
+        }
+        final ExtendedClientDetails ecd = ui.getInternals().getExtendedClientDetails();
+        if (ecd == null) {
+            return; // window.name not yet known: this UI has no tab scope yet
+        }
+        @SuppressWarnings("unchecked")
+        final Map<String, TabScope> instances = (Map<String, TabScope>) session.getAttribute("tab-scopes");
+        if (instances == null) {
+            return;
+        }
+        final TabScope tabScope = instances.get(ecd.getWindowName());
+        if (tabScope != null) {
+            tabScope.lifecycle.markBeaconClosed(ui);
+        }
+    }
+
+    /**
+     * Replaces the stock {@link UidlRequestHandler} in {@code handlers} with
+     * {@link TabScopeUidlRequestHandler}, so unload beacons reach {@link #onUnloadBeacon(UI)}. Call
+     * this from your own {@code VaadinService.createRequestHandlers()} on the list returned by
+     * {@code super.createRequestHandlers()}. Enables prompt reap for {@code @PreserveOnRefresh}
+     * tabs; without it, feature B still reaps plain routes promptly (see
+     * <a href="https://github.com/mvysny/vaadin-tab-scope/issues/3">issue #3</a>).
+     * <br/>
+     * No-op if no stock {@link UidlRequestHandler} is present — already installed, or the app uses
+     * its own {@code UidlRequestHandler} subclass (which it must then extend from
+     * {@link TabScopeUidlRequestHandler} instead).
+     *
+     * @param handlers the mutable request-handler list from {@code createRequestHandlers()}.
+     */
+    public static void installTabCloseBeacon(@NotNull List<RequestHandler> handlers) {
+        Objects.requireNonNull(handlers, "handlers");
+        for (int i = 0; i < handlers.size(); i++) {
+            // Exact-type match: swap Flow's stock handler, but never stomp an existing custom subclass.
+            if (handlers.get(i).getClass() == UidlRequestHandler.class) {
+                handlers.set(i, new TabScopeUidlRequestHandler());
+                log.debug("Installed TabScopeUidlRequestHandler for tab-close beacon capture");
+                return;
+            }
+        }
+        log.warn("installTabCloseBeacon: no stock UidlRequestHandler found; tab-close beacon capture NOT installed");
     }
 
     private static void removeUI(@NotNull TabScope tabScope, @NotNull UI ui) {

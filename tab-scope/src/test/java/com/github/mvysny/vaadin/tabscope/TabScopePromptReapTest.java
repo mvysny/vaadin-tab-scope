@@ -4,11 +4,16 @@ import com.github.mvysny.kaributesting.v10.MockBrowser;
 import com.github.mvysny.kaributesting.v10.MockVaadin;
 import com.github.mvysny.kaributesting.v10.Routes;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.server.RequestHandler;
+import com.vaadin.flow.server.VaadinSession;
+import com.vaadin.flow.server.communication.UidlRequestHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -86,5 +91,64 @@ public class TabScopePromptReapTest {
         assertSame(original, TabScope.getCurrent(), "the scope survives an F5");
         assertEquals(0, scheduler.pendingCount(), "the armed reap was cancelled when the new UI attached");
         assertEquals(1, TestInitListener.COUNTER.get(), "tab-init did not run again");
+    }
+
+    /**
+     * Feature A's mechanism: {@link TabScope#onUnloadBeacon(UI)} must start the grace clock while the
+     * {@code @PreserveOnRefresh} UI stays attached (real Flow ignores the beacon for such a route, so
+     * the UI is never closed). The timer then reaps it after the grace, closing the gap where such a
+     * scope would otherwise linger until session-destroy.
+     */
+    @Test
+    public void onUnloadBeaconStartsGraceClockWithoutClosingThePreserveUi() {
+        UI.getCurrent().navigate(PreserveOnRefreshTestView.class);
+        final UI ui = UI.getCurrent();
+        final TabScope scope = TabScope.getCurrent();
+        final AtomicInteger destroyed = new AtomicInteger();
+        scope.addDestroyListener(ts -> destroyed.incrementAndGet());
+
+        TabScope.onUnloadBeacon(ui); // beacon: start the clock, but do NOT close the UI
+
+        assertEquals(1, scheduler.pendingCount(), "the beacon armed the reap");
+        assertEquals(0, destroyed.get(), "not destroyed yet: still within the grace period");
+        assertFalse(ui.isClosing(), "the @PreserveOnRefresh UI stays open");
+        assertTrue(VaadinSession.getCurrent().getUIs().contains(ui), "the UI stays attached");
+
+        TabScope.CLEANUP_DURATION_MS = -1L;
+        scheduler.fireAll();
+        MockVaadin.clientRoundtrip();
+
+        assertEquals(1, destroyed.get(), "the timer reaped the beacon-closed scope after the grace period");
+    }
+
+    /**
+     * The beacon fires on a real F5 too, so a beacon followed by a same-{@code window.name} reattach
+     * must NOT destroy the scope: the new UI cancels the armed reap.
+     */
+    @Test
+    public void beaconFollowedByReloadKeepsTheScope() {
+        UI.getCurrent().navigate(PreserveOnRefreshTestView.class);
+        final TabScope scope = TabScope.getCurrent();
+
+        TabScope.onUnloadBeacon(UI.getCurrent()); // beacon arms the reap
+        assertEquals(1, scheduler.pendingCount());
+
+        UI.getCurrent().getPage().reload(); // real F5: new UI (same window.name) attaches within grace
+
+        assertSame(scope, TabScope.getCurrent(), "the reattach kept the same scope");
+        assertEquals(0, scheduler.pendingCount(), "the beacon-armed reap was cancelled by the reattach");
+    }
+
+    /** {@link TabScope#installTabCloseBeacon} swaps the stock UidlRequestHandler in place for ours. */
+    @Test
+    public void installTabCloseBeaconSwapsTheStockHandler() {
+        final RequestHandler other = (session, request, response) -> false;
+        final List<RequestHandler> handlers = new ArrayList<>(List.of(other, new UidlRequestHandler(), other));
+
+        TabScope.installTabCloseBeacon(handlers);
+
+        assertEquals(3, handlers.size(), "swapped in place, not added");
+        assertTrue(handlers.stream().anyMatch(h -> h instanceof TabScopeUidlRequestHandler), "our handler is installed");
+        assertTrue(handlers.stream().noneMatch(h -> h.getClass() == UidlRequestHandler.class), "the stock handler is gone");
     }
 }
