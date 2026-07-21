@@ -324,8 +324,12 @@ public final class TabScope implements Serializable {
      * session timeout alike; the timeout path reaches us through {@link VaadinSession}'s
      * {@code HttpSessionBindingListener} (no listener registration needed), verified on embedded
      * Jetty and Tomcat in <a href="https://github.com/mvysny/vaadin-boot/issues/39">mvysny/vaadin-boot#39</a>.
-     * Only an abrupt {@code kill -9} / power loss skips it, as it would any shutdown hook. Note the
-     * timeout path is reliable but not prompt — it waits for the container's session sweep (see
+     * Only an abrupt {@code kill -9} / power loss skips it, as it would any shutdown hook.
+     * <br/>
+     * A <strong>sole-last-tab close</strong> fires this promptly too (within the grace period,
+     * ~60&nbsp;s), via the always-on scheduled reap — for {@code @PreserveOnRefresh} routes once the
+     * app wires {@link #onUnloadBeacon(UI)} (see {@link #installTabCloseBeacon(java.util.List)}).
+     * What remains container-paced is only a genuine idle timeout with the tab left open (see
      * <a href="https://github.com/mvysny/vaadin-tab-scope/issues/3">issue #3</a>).
      *
      * @param listener scope destroy listener to call.

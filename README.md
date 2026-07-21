@@ -61,6 +61,38 @@ own). A plain Servlet / Vaadin-Boot app registers the two pieces itself:
 
 See the `testapp/` module for both files in context.
 
+### Optional: prompt reap for `@PreserveOnRefresh` routes
+
+An orphaned scope is always reaped ~60 s after its last tab closes. For a plain route the browser's
+unload beacon triggers that on close; but Flow **ignores** the beacon for a `@PreserveOnRefresh`
+route, so such a scope would otherwise linger until the session times out. To make it prompt, route
+the beacon through tab-scope by installing its handler from your own `VaadinServlet` — the library
+ships the handler but registers nothing (so it stays Spring-safe):
+
+```java
+@WebServlet(urlPatterns = "/*", name = "my-servlet", asyncSupported = true)
+public class MyServlet extends VaadinServlet {
+    @Override
+    protected VaadinServletService createServletService(DeploymentConfiguration config)
+            throws ServiceException {
+        VaadinServletService service = new VaadinServletService(this, config) {
+            @Override
+            protected List<RequestHandler> createRequestHandlers() throws ServiceException {
+                List<RequestHandler> handlers = new ArrayList<>(super.createRequestHandlers());
+                TabScope.installTabCloseBeacon(handlers); // swaps in TabScopeUidlRequestHandler
+                return handlers;
+            }
+        };
+        service.init();
+        return service;
+    }
+}
+```
+
+Vaadin Boot auto-discovers the `@WebServlet`, so declaring it is all the wiring needed. See
+`testapp/TabScopeBeaconServlet` and the `/preserve` route. (Skip this entirely if you don't use
+`@PreserveOnRefresh` — plain routes reap promptly without it.)
+
 ## Tab-scoped values
 
 The `TabScope` class stores tab-scoped values. First, initialize it from your
@@ -105,9 +137,11 @@ On a container timeout Vaadin fires session-destroy via `HttpSessionBindingListe
 listener registration; this is verified end-to-end on both embedded Jetty and Tomcat in
 [mvysny/vaadin-boot#39](https://github.com/mvysny/vaadin-boot/issues/39) (the source of truth). Only an
 abrupt `kill -9` / power loss skips it, exactly as it skips every shutdown hook — not a limitation
-particular to this listener. The one caveat is *promptness*, not reliability: on a sole-last-tab close
-the timeout path can lag by minutes (see [INTERNALS.md](INTERNALS.md) → "When destroy listeners fire"
-and [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3)).
+particular to this listener. A **sole-last-tab close** fires the listener promptly too (within ~60 s),
+via an always-on scheduled reap — for `@PreserveOnRefresh` routes you additionally wire the tab-close
+beacon hook (see below). What stays container-paced is only a genuine *idle timeout* with the tab left
+open (see [INTERNALS.md](INTERNALS.md) → "When destroy listeners fire" and
+[issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3)).
 
 See the `MainView` and `MainViewNoAppLayout` views for a regular route (prototype-scoped:
 new instance every time) accessing tab-scoped values.
@@ -129,13 +163,18 @@ the `TabScope`. See the `TabScopedView` and `TabScopedViewNoAppLayout` routes fo
 
 ## Do I need `@PreserveOnRefresh`?
 
-No. Tab scoping works the same with or without it, and you should **not** treat the annotation as
-a prerequisite. `@PreserveOnRefresh` is a narrow, separate Vaadin feature — it only reuses a
-single view instance across F5 of the *same URL*, and throws that state away as soon as you
-navigate elsewhere. Tab scope here is broader: arbitrary per-tab values plus `@TabScoped` routes
-that survive both reload *and* navigation. Even Vaadin's own tab-scope discussion
+No — not for the scoping itself. Tab scoping works the same with or without it, and you should
+**not** treat the annotation as a prerequisite. `@PreserveOnRefresh` is a narrow, separate Vaadin
+feature — it only reuses a single view instance across F5 of the *same URL*, and throws that state
+away as soon as you navigate elsewhere. Tab scope here is broader: arbitrary per-tab values plus
+`@TabScoped` routes that survive both reload *and* navigation. Even Vaadin's own tab-scope discussion
 ([flow#13468](https://github.com/vaadin/flow/issues/13468)) lists `@PreserveOnRefresh` as an
 insufficient workaround rather than the solution.
+
+The one place it interacts is **prompt cleanup**: if you *do* use `@PreserveOnRefresh`, Flow ignores
+the unload beacon for that route, so wire the optional tab-close beacon hook (see "Optional: prompt
+reap for `@PreserveOnRefresh` routes" above) to have the scope reaped promptly on a sole-tab close
+rather than at session timeout. Plain routes need no such wiring.
 
 For the full reasoning, see [INTERNALS.md](INTERNALS.md) → "Relationship to `@PreserveOnRefresh`".
 
