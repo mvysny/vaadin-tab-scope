@@ -42,6 +42,14 @@ subprojects {
             isFailOnError = false
         }
 
+        // The JDK 22+ standard doclet embeds ~4 MB of DejaVu web fonts into the javadoc HTML
+        // (JDK-8324774), dwarfing our few KB of actual API docs. Strip them from the published
+        // jar so releases stay tiny. Done as a jar-exclude rather than the JDK 23+ `--no-fonts`
+        // flag (JDK-8326683) so the build still works on JDK <= 22; pages fall back to system fonts.
+        tasks.named<Jar>("javadocJar") {
+            exclude("resource-files/fonts/**")
+        }
+
         publishing {
             publications {
                 create("mavenJava", MavenPublication::class.java).apply {
