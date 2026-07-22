@@ -124,6 +124,33 @@ MCP, and not raw Playwright/CDP either, so a new MCP tool alone wouldn't unblock
    name in Chromium and is what automation can reach; a real address-bar Enter (S2b) is what trips
    Safari and only a human can perform it. An automated S2a pass says nothing about S2b.
 
+### Running the whole matrix with an agent
+
+Every row **except S11 and S12** can be driven from a single agent session — this is how the Chrome
+chapter under [Last Testing Outcome](#last-testing-outcome) was produced. The agent:
+
+1. **Starts the harness and the browser.** It runs `./gradlew :testapp:run` (server) and launches
+   Chrome via Playwright. That Playwright browser is **headed and visible to the human**, so the one
+   window serves both the agent's automation and the human's chrome-actions.
+2. **Automates the scriptable rows** itself — S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14 (the table
+   above) — reading signals A/B with one `page.evaluate` and signal C from the server log.
+3. **Guides the human one row at a time** for the browser-chrome / history actions it cannot
+   synthesize — **S2b** (address-bar Enter), **S3** (bookmark), **S8** (Duplicate Tab), **S10**
+   (reopen closed tab). Per row the agent notes the current server-log position, tells the human
+   exactly what to do, the human reports what they see (tab ID + `Value`), and the agent renders the
+   verdict against signal C — the ground truth, since the log prints the `window.name` the server
+   received plus every `Created`/orphaned/`Destroying`. The human only ever reports signals A/B; the
+   agent owns the verdict.
+
+**Only S11 and S12 stay out of reach even this way:** both need the browser *process* to die (a full
+quit, or a force-kill + crash-restore), which takes the Playwright-managed browser — and the agent's
+control channel — down with it. Those two remain fully manual.
+
+The split is exactly §1's automation table (what the agent scripts) plus the "strictly manual" list
+minus S11/S12 (what the human does under agent guidance). Note S10 is human-driven *here* even
+though it sits in the "missing MCP tool" bucket above: that bucket is about the agent *synthesizing*
+the action, whereas a human performs it directly in the visible window with the browser still alive.
+
 ### Browsers to cover (issue #2)
 
 | # | Browser | Platform | How to reach it |
@@ -321,33 +348,37 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
-_Chrome: full automated (headless) pass of every scriptable row on 2026-07-22, below. All other
-chapters are still templates awaiting a real run._
+_Chrome: near-complete pass on 2026-07-22, below — every scriptable row driven from Playwright,
+plus the three chrome-action rows (S2b, S3, S8) hand-performed in the same headed window. Only the
+close/reopen lifecycle rows (S10–S12) are still unrun. All other browser chapters are templates
+awaiting a real run._
 
-## Chrome (Chromium 150, headless via Playwright MCP) — 2026-07-22
+## Chrome (Chromium 150, headed, via Playwright MCP) — 2026-07-22
 
-> Fully automated (headless) pass — **every scriptable row (S0, S1, S2a, S4, S5, S6, S7, S9, S13,
-> S14) was driven from Playwright and passed.** Rows left blank were not exercised because they are
-> not scriptable: S2b/S3 (address-bar / bookmark — browser chrome), S8 (Duplicate Tab — no
-> `browser_tabs` duplicate action / no CDP duplicate-target), and S10–S12 (reopen-closed-tab and
-> restore-after-quit/crash — browser-lifecycle actions). See §1 "Automating a pass". As noted there,
-> headless Chrome preserves `window.name` across every scriptable navigation, so this pass confirms
-> the happy path and that the harness/signals react, but cannot surface a name drop (that is S2b's
-> job, hand-run in Safari). Ground-truth read off signal C (the server log). This run's scopes:
-> tab A `v-0.194…`, tab B `v-0.4606…` (the row-driver), a `window.open` tab `v-0.5155…`.
+> The scriptable rows (S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14) were driven from Playwright; the
+> browser-chrome rows **S2b, S3 and S8 were hand-performed** in the same headed Chromium window
+> (address-bar Enter, bookmark click, right-click → Duplicate). **Every row run passed.** Only
+> S10–S12 are left blank — reopen-closed-tab and restore-after-quit/crash need Chrome to be
+> closed/relaunched, deferred to a later pass. Ground truth read off signal C (the server log).
+>
+> Note the split that S2 exists for: **S2a** (programmatic `page.goto(location.href)`) and **S2b**
+> (a real address-bar Enter) both **preserve** `window.name` on Chrome — but only S2b exercises the
+> code path that *drops* it on Safari. Chrome passing S2b/S3 is expected; it is Safari that fails
+> them (hand-run there, still a template below). Scopes seen this run: reference tab `v-0.194…`
+> (drove S1/S2a/S2b/S3), the S8 duplicate `v-0.828…`, plus earlier automated-run scopes.
 
 | Scenario | Outcome |
 |----------|---------|
 | S0 | passes — 2nd tab got a distinct ID `v-0.4606…` + `Value: 7` (vs. tab A `v-0.194…`/`Value: 6`); fresh `Created TabScope{v-0.4606…}` logged (signal C) |
 | S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 7` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
 | S2a | passes — `page.goto(location.href)`: `window.name` + `Value: 7` preserved, no new `Created` |
-| S2b | |
-| S3 | |
+| S2b | passes (hand-run) — address-bar Enter on `/`: tab ID `v-0.194…` + `Value: 6` preserved; the reload logged a transient `unload beacon`/`is now orphaned` but **no new `Created`** (reattached to the same scope). This is the row that *fails* on Safari; Chrome holds the name |
+| S3 | passes (hand-run) — bookmark click on `/`: tab ID `v-0.194…` + `Value: 6` preserved; transient orphan, no new `Created` |
 | S4 | passes — SideNav `/` → `/tab-scoped-route` → `/`: `window.name` + `Value: 7` preserved; the `@TabScoped` route's own `Value: 1` stable across the round-trip; no new `Created` |
 | S5 | passes — `document.location = location.href`: `window.name` + `Value: 7` preserved |
 | S6 | passes — Back to `/` kept `Value: 7`, Forward kept the `@TabScoped` `Value: 1`; `window.name` preserved throughout, no new `Created` |
 | S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 7` preserved (bfcache restore), no new `Created` |
-| S8 | |
+| S8 | passes (hand-run) — right-click → Duplicate: the duplicate got a fresh `window.name` `v-0.828…` + `Value: 9` and its own `Created TabScope{…}`; the source scope `v-0.194…` stayed alive → two distinct scopes, no collision |
 | S9 | passes — `window.open('/tab-scoped-route')`: new tab got a fresh `window.name` `v-0.5155…` + its own `Created TabScope{…}` → distinct new scope (no mis-merge) |
 | S10 | |
 | S11 | |
