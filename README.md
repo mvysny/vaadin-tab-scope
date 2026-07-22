@@ -171,7 +171,9 @@ public class TabScopedView extends VerticalLayout { ... }
 A custom `Instantiator` (`TabScopedRouteInstantiator`) caches `@TabScoped`-annotated views in
 the `TabScope`. See the `TabScopedView` and `TabScopedViewNoAppLayout` routes for examples.
 
-## Do I need `@PreserveOnRefresh`?
+## FAQ
+
+### Do I need `@PreserveOnRefresh`?
 
 No — not for the scoping itself. Tab scoping works the same with or without it, and you should
 **not** treat the annotation as a prerequisite. `@PreserveOnRefresh` is a narrow, separate Vaadin
@@ -187,8 +189,6 @@ reap for `@PreserveOnRefresh` routes" above) to have the scope reaped promptly o
 rather than at session timeout. Plain routes need no such wiring.
 
 For the full reasoning, see [INTERNALS.md](INTERNALS.md) → "Relationship to `@PreserveOnRefresh`".
-
-## FAQ
 
 ### The browser can detect a reload — can't you use that to clean up tab scopes faster?
 

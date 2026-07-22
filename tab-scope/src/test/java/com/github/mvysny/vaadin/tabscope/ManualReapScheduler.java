@@ -14,7 +14,7 @@ import java.util.List;
  * restore a fresh {@code ExecutorReapScheduler} in {@code @AfterEach}; while installed, no real
  * reaper thread is ever created.
  */
-final class ManualReapScheduler implements TabScope.ReapScheduler {
+final class ManualReapScheduler implements ReapScheduler {
     private final List<Runnable> pending = new ArrayList<>();
 
     @NotNull

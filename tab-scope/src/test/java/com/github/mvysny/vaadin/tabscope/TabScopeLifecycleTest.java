@@ -45,7 +45,7 @@ public class TabScopeLifecycleTest {
         if (!tornDown) {
             MockVaadin.tearDown();
         }
-        TabScope.reapScheduler = new TabScope.ExecutorReapScheduler();
+        TabScope.reapScheduler = new ReapScheduler.ExecutorBacked();
         TabScope.CLEANUP_DURATION_MS = 60 * 1000L; // restore the production grace period
     }
 

@@ -13,10 +13,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Stores values in a browser tab scope - all values inserted into {@link #getValues()} are preserved per browser tab.
@@ -67,7 +63,7 @@ public final class TabScope implements Serializable {
     public static volatile long CLEANUP_DURATION_MS = 60 * 1000L;
 
     /**
-     * Whether an orphaned scope is reaped promptly by the background {@link ScheduledExecutorService}. {@code true} by default.
+     * Whether an orphaned scope is reaped promptly by the background {@link ReapScheduler}. {@code true} by default.
      * <br/>
      * Set to {@code false} to disable the reaper thread entirely and ride only Vaadin's default
      * UI-closing plus the request-driven sweep and session-destroy backstops — the behavior before
@@ -80,68 +76,11 @@ public final class TabScope implements Serializable {
     public static volatile boolean scheduledReapEnabled = true;
 
     /**
-     * Schedules the one-shot orphan reap that fires {@link #CLEANUP_DURATION_MS} after a scope
-     * orphans, so a sole last tab is reaped without waiting for another request. The production
-     * implementation ({@link ExecutorReapScheduler}) owns a shared daemon
-     * {@link ScheduledExecutorService}; the interface exists <em>solely</em> so tests can swap in a
-     * manual scheduler and fire (or assert cancellation of) the reap deterministically, without real
-     * sleeps (see {@code TabScopeLifecycleTest}).
-     */
-    interface ReapScheduler extends AutoCloseable {
-        /**
-         * @param task    the reap, to run after {@code delayMs}
-         * @param delayMs delay in milliseconds
-         * @return a handle whose {@link Registration#remove()} prevents the task if it hasn't run yet
-         */
-        @NotNull
-        Registration schedule(@NotNull Runnable task, long delayMs);
-
-        /**
-         * Releases scheduler resources (e.g. the daemon thread) on {@link VaadinService} destroy.
-         * Narrows {@link AutoCloseable#close()} to throw nothing.
-         */
-        @Override
-        void close();
-    }
-
-    /**
      * The active reap scheduler. Defaults to the executor-backed production implementation; tests
-     * replace it with a manual one and restore a fresh {@link ExecutorReapScheduler} afterwards.
+     * replace it with a manual one and restore a fresh {@link ReapScheduler.ExecutorBacked} afterwards.
      */
     @NotNull
-    static volatile ReapScheduler reapScheduler = new ExecutorReapScheduler();
-
-    /**
-     * Production {@link ReapScheduler}: owns a single daemon executor, created lazily on first
-     * schedule and shut down (and forgotten, so a later schedule recreates it) on service destroy —
-     * this way a servlet-container redeploy doesn't leak the thread or its classloader.
-     */
-    static final class ExecutorReapScheduler implements ReapScheduler {
-        @Nullable
-        private ScheduledExecutorService executor;
-
-        @NotNull
-        @Override
-        public synchronized Registration schedule(@NotNull Runnable task, long delayMs) {
-            if (executor == null) {
-                executor = Executors.newSingleThreadScheduledExecutor(r -> {
-                    final Thread t = new Thread(r, "tab-scope-reaper");
-                    t.setDaemon(true);
-                    return t;
-                });
-            }
-            final ScheduledFuture<?> future = executor.schedule(task, delayMs, TimeUnit.MILLISECONDS);
-            return () -> future.cancel(false);
-        }
-
-        @Override
-        public synchronized void close() {
-            if (executor != null) {
-                executor.shutdownNow();
-                executor = null;
-            }
-        }
-    }
+    static volatile ReapScheduler reapScheduler = new ReapScheduler.ExecutorBacked();
 
     @NotNull
     private final Lifecycle lifecycle = new Lifecycle();

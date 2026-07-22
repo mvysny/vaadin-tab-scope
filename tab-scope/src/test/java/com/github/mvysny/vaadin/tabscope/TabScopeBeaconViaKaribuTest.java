@@ -60,7 +60,7 @@ public class TabScopeBeaconViaKaribuTest {
     @AfterEach
     public void teardownVaadin() {
         MockVaadin.tearDown();
-        TabScope.reapScheduler = new TabScope.ExecutorReapScheduler();
+        TabScope.reapScheduler = new ReapScheduler.ExecutorBacked();
         TabScope.CLEANUP_DURATION_MS = 60 * 1000L;
     }
 
