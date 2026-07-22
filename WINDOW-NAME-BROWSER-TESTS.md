@@ -389,8 +389,8 @@ When a "preserved"-expected row shows ⚠️:
 _Chrome (Chromium 150), Firefox/LibreWolf, and Safari 26.5.2 (Web Inspector closed): complete passes
 of all 17 scenarios on 2026-07-22, below. The Chrome and Firefox chapters were two-browser-in-one-
 agent-session runs; the Safari chapter was fully hand-run on a Mac with the agent owning the server
-log (see "Driving Safari (B4)"). The Safari Web-Inspector-**open** chapter, Edge, and iOS Safari are
-still templates awaiting a real run._
+log (see "Driving Safari (B4)"). The Safari Web-Inspector-**open** chapter is in progress (below,
+S0–S6 done); Edge and iOS Safari are still templates awaiting a real run._
 
 ## Chrome (Chromium 150) — 2026-07-22
 
@@ -550,18 +550,27 @@ still templates awaiting a real run._
 | S13 | passes — full-navigate away to `/tab-scoped-route` then browser Back to `/`: `0.9717 / 7` preserved (bfcache), transient beacon/orphan pairs on leave and return, no new `Created` |
 | S14 | passes — `/preserve` Cmd-R: `Value 9` preserved; the beacon hook started the grace clock **without closing** the `@PreserveOnRefresh` UI, which reattached → no `Created`/`Destroying` |
 
-## Safari (Web Inspector open) <!-- version --> — <!-- YYYY-MM-DD -->
+## Safari 26.5.2 / macOS Tahoe 26.5.2 (Web Inspector open) — 2026-07-22
+
+> Second Safari chapter, Web Inspector kept **open** (docked to the window) across every
+> reference-tab row — the modifier that mattered on 18.3.1 (which *preserved* with the Inspector open
+> but *dropped* with it closed). On 26.5.2 the closed chapter already preserved, so this chapter is
+> expected to mirror it. Same hand-run method (the agent owns signal C). The new-tab rows
+> (S0/S8/S9/S10/S11/S12) run with the *new* tab's own Inspector closed — acceptable, since those
+> expect a fresh scope regardless of Inspector state (the 18.3.1 drop was never about new tabs).
+> S5/S9 run directly in the console (no bookmarklet needed). Reference tab: `v-0.3265…` / `Value 15`.
+> **[In progress — S7–S14 pending.]**
 
 | Scenario | Outcome |
 |----------|---------|
-| S0 | |
-| S1 | |
-| S2a | |
-| S2b | |
-| S3 | |
-| S4 | |
-| S5 | |
-| S6 | |
+| S0 | passes — 2nd tab got a distinct `v-0.0806…` / `Value 16` + its own `Created`; reference `v-0.3265…`/15 untouched |
+| S1 | passes — Cmd-R: `0.3265 / 15` preserved, transient beacon/orphan then reattach, no new `Created` |
+| S2a | n/a — automation-only |
+| S2b | passes (preserved) — address-bar Enter with Inspector **open**: `0.3265 / 15`, transient orphan, no new `Created` (mirrors the closed chapter — no Inspector-dependent difference on 26.5.2) |
+| S3 | passes (preserved) — bookmark click: `0.3265 / 15`, beacon/orphan then reattach, no new `Created` |
+| S4 | passes — SideNav `/` → `/tab-scoped-route` → `/`: `0.3265 / 15`, zero log activity (in-document router nav) |
+| S5 | passes — console `document.location=location.href`: page reloaded, `0.3265 / 15` preserved, no new `Created` |
+| S6 | passes — browser Back/Forward: `/` stayed `0.3265 / 15` (Forward shows the same tab ID + the route's own `@TabScoped Value 4`), zero log activity |
 | S7 | |
 | S8 | |
 | S9 | |
