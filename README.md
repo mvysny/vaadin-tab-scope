@@ -93,6 +93,16 @@ Vaadin Boot auto-discovers the `@WebServlet`, so declaring it is all the wiring 
 `testapp/TabScopeBeaconServlet` and the `/preserve` route. (Skip this entirely if you don't use
 `@PreserveOnRefresh` — plain routes reap promptly without it.)
 
+## Configuration
+
+Two `public static` fields on `TabScope` tune cleanup. Both are global and read live, so set them
+once at startup (e.g. from your `VaadinServiceInitListener`) before your app serves requests:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `TabScope.CLEANUP_DURATION_MS` | `60_000` (60 s) | Grace period after a tab's last UI goes away before its scope is reaped. Absorbs the page-reload race, where the old UI detaches before the new one attaches, leaving the scope momentarily UI-less. Don't shorten it without weighing that race. |
+| `TabScope.scheduledReapEnabled` | `true` | Whether a background daemon thread reaps an orphaned scope ~`CLEANUP_DURATION_MS` after close even with no further request — what makes a *sole last tab* reap promptly. Set `false` to drop the reaper thread and fall back to request-driven cleanup plus session-destroy. |
+
 ## Tab-scoped values
 
 The `TabScope` class stores tab-scoped values. First, initialize it from your

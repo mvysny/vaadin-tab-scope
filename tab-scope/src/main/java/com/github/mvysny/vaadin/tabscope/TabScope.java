@@ -63,20 +63,15 @@ public final class TabScope implements Serializable {
      * creating a situation where zero UIs point to a tab scope.
      * <br/>
      * Without the timeout, the tab scope would have been closed immediately.
-     * <br/>
-     * Package-private and non-final <em>solely</em> so tests can shrink the grace period and
-     * exercise the orphan-reaping branch (see {@code TabScopeLifecycleTest}); treat it as a
-     * constant (60&nbsp;seconds) in production.
      */
-    static long CLEANUP_DURATION_MS = 60 * 1000L;
+    public static volatile long CLEANUP_DURATION_MS = 60 * 1000L;
 
     /**
-     * Whether an orphaned scope is reaped promptly by the background {@link ScheduledExecutorService}
-     * (feature B). {@code true} by default.
+     * Whether an orphaned scope is reaped promptly by the background {@link ScheduledExecutorService}. {@code true} by default.
      * <br/>
      * Set to {@code false} to disable the reaper thread entirely and ride only Vaadin's default
-     * UI-closing plus the request-driven sweep and session-destroy backstops — the pre-feature-B
-     * behavior, where a <em>sole last tab</em>'s scope lingers until the session ends rather than
+     * UI-closing plus the request-driven sweep and session-destroy backstops — the behavior before
+     * the scheduled reaper existed, where a <em>sole last tab</em>'s scope lingers until the session ends rather than
      * being reaped ~60&nbsp;s after close, and no {@code tab-scope-reaper} thread is ever created.
      * Everything else (per-tab values, {@code @TabScoped} caching, reaping while other tabs are
      * active) is unaffected. Read once per orphan, in {@code armReap()}; set it before your app
@@ -532,7 +527,7 @@ public final class TabScope implements Serializable {
      * {@link TabScopeUidlRequestHandler}, so unload beacons reach {@link #onUnloadBeacon(UI)}. Call
      * this from your own {@code VaadinService.createRequestHandlers()} on the list returned by
      * {@code super.createRequestHandlers()}. Enables prompt reap for {@code @PreserveOnRefresh}
-     * tabs; without it, feature B still reaps plain routes promptly (see
+     * tabs; without it, the scheduled reaper still reaps plain routes promptly (see
      * <a href="https://github.com/mvysny/vaadin-tab-scope/issues/3">issue #3</a>).
      * <br/>
      * No-op if no stock {@link UidlRequestHandler} is present — already installed, or the app uses

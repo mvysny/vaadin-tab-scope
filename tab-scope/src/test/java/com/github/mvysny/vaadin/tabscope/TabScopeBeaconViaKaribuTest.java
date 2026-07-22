@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Validates feature A's <em>full HTTP path</em> browserlessly against Karibu-Testing 2.7.2+
+ * Validates the tab-close beacon hook's <em>full HTTP path</em> browserlessly against Karibu-Testing 2.7.2+
  * (karibu-testing#210), which routes the simulated unload beacon through the app's real
  * {@link com.vaadin.flow.server.communication.ServerRpcHandler} — obtained from the installed
  * {@link com.vaadin.flow.server.communication.UidlRequestHandler}. With our
@@ -88,7 +88,7 @@ public class TabScopeBeaconViaKaribuTest {
         assertEquals(1, scheduler.pendingCount(), "onUnloadBeacon armed the reap despite the UI lingering");
         assertEquals(0, destroyed.get(), "not reaped yet (within grace)");
 
-        // The timer then reaps it (feature B), with no reattach.
+        // The scheduled reaper then reaps it, with no reattach.
         TabScope.CLEANUP_DURATION_MS = -1L;
         scheduler.fireAll();
         MockVaadin.clientRoundtrip();

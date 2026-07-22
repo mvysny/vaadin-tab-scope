@@ -308,8 +308,8 @@ Three things drive cleanup:
   request holds the lock (`VaadinService#ensureAccessQueuePurged`) — and reaps the scope if it is
   still orphaned. Set the public flag `TabScope.scheduledReapEnabled = false` to switch this off
   entirely (`armReap()` becomes a no-op, no reaper thread is created) and fall back to the two
-  request-driven triggers below — the pre-feature-B behavior, for apps that prefer to ride Vaadin's
-  default UI-closing without a background thread. This is what makes a **sole last tab** reap promptly: with no other tab there is
+  request-driven triggers below — the behavior before the scheduled reaper was added, for apps that
+  prefer to ride Vaadin's default UI-closing without a background thread. This is what makes a **sole last tab** reap promptly: with no other tab there is
   no future request, yet the timer still fires. The task is cancelled when a UI re-attaches (which
   clears `orphanedSince`) and is idempotent anyway (a no-op if a UI came back). The `ScheduledFuture`
   lives in a `transient` field, so a passivated/reactivated scope simply falls back to the two
@@ -412,7 +412,7 @@ The cleanup analysis above was verified against `flow-server-25.2.1-sources.jar`
   `ui.getInternals().getExtendedClientDetails().getWindowName()` (can be null on non-standard
   bootstrap requests that omit `v-sw`).
 
-The prompt-reap seams (features A/B, verified against Flow **25.2.4**):
+The prompt-reap seams (the tab-close beacon hook and the scheduled reaper, verified against Flow **25.2.4**):
 
 - **Beacon hook seam:** `ServerRpcHandler#createRpcHandler` is not overridable directly; the factory
   is `UidlRequestHandler#createRpcHandler` (protected), and the handler chain is built by
@@ -496,9 +496,9 @@ first-class, not the theoretical optimization earlier drafts described:
 So the balance is:
 
 - **Semantic layer** — tab scope must *not* require `@PreserveOnRefresh`. Keep it working both ways.
-- **Cleanup layer** — the scheduled timer (feature B) always-on covers plain routes and is the
-  general floor; the tab-close beacon hook (feature A), *when the app opts in*, extends prompt reap
-  to the `@PreserveOnRefresh` case. For a preserve app that wants prompt cleanup, A is load-bearing.
+- **Cleanup layer** — the always-on scheduled reaper covers plain routes and is the general floor;
+  the tab-close beacon hook, *when the app opts in*, extends prompt reap to the `@PreserveOnRefresh`
+  case. For a preserve app that wants prompt cleanup, the beacon hook is load-bearing.
 
 The full analysis of why the timer can't be replaced by reap-on-empty (the unload-beacon race,
 per-path table, and rejected alternatives) is under "Cleanup" → "Why the timer is necessary".
@@ -547,10 +547,10 @@ What still isn't testable this way is the *timing* itself (the race is determini
   cases.
 
   Reaping is time-gated on `System.currentTimeMillis()` inside our own code, so Karibu can't help.
-  `TabScope.CLEANUP_DURATION_MS` is therefore package-private and non-final **solely** so the test
-  can shrink it (to `-1`) and let an EAGER reload run straight through orphan → reap → fresh scope
-  in one call; treat it as a 60 s constant in production.
-- `TabScopePromptReapTest` drives the **prompt** reap (features A/B). Its second seam is
+  `TabScope.CLEANUP_DURATION_MS` is a public, app-configurable grace period (60 s by default); the
+  test shrinks it (to `-1`) to let an EAGER reload run straight through orphan → reap → fresh scope
+  in one call.
+- `TabScopePromptReapTest` drives the **prompt** reap (the beacon hook and the scheduled reaper). Its second seam is
   `TabScope.reapScheduler`: a package-private field that, when set to a `ManualReapScheduler`,
   captures the armed reap instead of scheduling it on the real daemon executor — so a test can fire
   it (or assert it was cancelled on reattach) deterministically, with no real sleeps, then drain the

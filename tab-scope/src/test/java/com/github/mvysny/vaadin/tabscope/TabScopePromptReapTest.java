@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Covers the always-on scheduled reap (feature B of issue #3): an orphaned scope is destroyed after
+ * Covers the always-on scheduled reap (issue #3): an orphaned scope is destroyed after
  * the grace period by the timer alone, with no further request in the session — the case that a sole
  * last browser tab produces. Uses {@link ManualReapScheduler} so the timer fires deterministically
  * without real sleeps; see INTERNALS.md, "Cleanup".
@@ -51,7 +51,7 @@ public class TabScopePromptReapTest {
     }
 
     /**
-     * The core of feature B: after a tab closes and its scope orphans, nothing else happens in the
+     * The core of the scheduled reap: after a tab closes and its scope orphans, nothing else happens in the
      * session — no reload, no other tab, no {@code reapInactiveUIs}. The armed one-shot reap alone
      * must destroy the scope once the grace period elapses. We keep a second (focused) tab alive only
      * so the browserless harness has a current UI to drain the {@code session.access} queue that the
@@ -95,7 +95,7 @@ public class TabScopePromptReapTest {
     }
 
     /**
-     * Feature A's mechanism: {@link TabScope#onUnloadBeacon(UI)} must start the grace clock while the
+     * The tab-close beacon hook: {@link TabScope#onUnloadBeacon(UI)} must start the grace clock while the
      * {@code @PreserveOnRefresh} UI stays attached (real Flow ignores the beacon for such a route, so
      * the UI is never closed). The timer then reaps it after the grace, closing the gap where such a
      * scope would otherwise linger until session-destroy.

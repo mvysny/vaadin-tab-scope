@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Installs tab-scope's unload-beacon capture (feature A of issue #3) into the request-handler chain,
+ * Installs tab-scope's unload-beacon capture (issue #3) into the request-handler chain,
  * so a {@code @PreserveOnRefresh} sole-tab close reaps its scope promptly.
  * <br/>
  * This glue is environment-specific and belongs to the app: the library ships
