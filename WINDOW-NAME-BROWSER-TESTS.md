@@ -126,8 +126,10 @@ MCP, and not raw Playwright/CDP either, so a new MCP tool alone wouldn't unblock
 
 ### Running the whole matrix with an agent
 
-Every row **except S10, S11 and S12** can be driven from a single agent session — this is how the
-Chrome chapter under [Last Testing Outcome](#last-testing-outcome) was produced. The agent:
+**Every** row can be driven from a single agent session — it just takes **two browsers**, because
+the Playwright-controlled one can't do the last three rows. This is how the complete Chrome chapter
+under [Last Testing Outcome](#last-testing-outcome) was produced (all 17 rows, 2026-07-22). The
+agent:
 
 1. **Starts the harness and the browser.** It runs `./gradlew :testapp:run` (server) and launches
    Chrome via Playwright. That Playwright browser is **headed and visible to the human**, so the one
@@ -140,23 +142,21 @@ Chrome chapter under [Last Testing Outcome](#last-testing-outcome) was produced.
    see (tab ID + `Value`), and the agent renders the verdict against signal C — the ground truth,
    since the log prints the `window.name` the server received plus every `Created`/orphaned/
    `Destroying`. The human only ever reports signals A/B; the agent owns the verdict.
+4. **Co-launches a second, plain Chromium** (outside Playwright, normal profile) for **S10, S11,
+   S12** — the three rows the Playwright browser can't do. The Playwright automation profile
+   disables tab-restore (Ctrl-Shift-T dead, "Reopen closed tab" greyed out — confirmed 2026-07-22,
+   Chromium 150), and quitting/crashing the Playwright browser would sever the agent's control
+   channel. A plain Chromium started with a shell command has neither problem: it is visible on the
+   same display, has working tab-restore and quit/crash-restore, and can be quit or killed freely.
+   The agent launches it, guides the human (who does the close/reopen for S10, sets "Continue where
+   you left off" then quits/relaunches for S11, clicks **Restore** for S11/S12), and reads the
+   verdict from signal C. For **S12** the agent triggers the crash itself by **SIGKILLing the
+   browser's *main* process** — killing a child renderer only auto-reloads the page (a false crash);
+   the main process is the one with no `--type=` in its command line.
 
-**S10, S11 and S12 stay out of reach even this way**, each for its own reason:
-
-- **S10** (reopen closed tab) — Playwright launches Chrome with a throwaway automation profile whose
-  **tab-restore history is disabled**: after closing a tab, Ctrl-Shift-T does nothing and the
-  right-click **"Reopen closed tab"** item is **greyed out** (confirmed 2026-07-22, Chromium 150).
-  So even the human can't perform it in the agent-launched window. The *close* half still works —
-  the log shows the closed scope orphan and reap ~60 s later — but the reopen that S10 measures
-  cannot happen here.
-- **S11 / S12** — both need the browser *process* to die (a full quit, or a force-kill +
-  crash-restore), which takes the Playwright-managed browser, and the agent's control channel, down
-  with it.
-
-All three *can* be run against a **separately human-launched** Chrome (a normal profile, started
-outside Playwright): the agent still reads signal C from the server log, it just can't read signals
-A/B via Playwright for that window, so the human reports them. For a one-browser agent run, treat
-S10–S12 as the manual remainder.
+The only thing the human must do is the physical chrome-actions and reporting signals A/B for the
+plain-Chromium rows; the agent owns every verdict via signal C. Nothing in the matrix (bar the
+human's hands) is beyond a single agent session.
 
 ### Browsers to cover (issue #2)
 
@@ -355,22 +355,25 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
-_Chrome: near-complete pass on 2026-07-22, below — every scriptable row driven from Playwright,
-plus the three chrome-action rows (S2b, S3, S8) hand-performed in the same headed window. Only the
-close/reopen lifecycle rows (S10–S12) are still unrun. All other browser chapters are templates
-awaiting a real run._
+_Chrome: complete pass of all 17 scenarios on 2026-07-22, below — two browsers in one agent session
+(see the chapter). All other browser chapters are templates awaiting a real run._
 
-## Chrome (Chromium 150, headed, via Playwright MCP) — 2026-07-22
+## Chrome (Chromium 150) — 2026-07-22
 
-> The scriptable rows (S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14) were driven from Playwright; the
-> browser-chrome rows **S2b, S3 and S8 were hand-performed** in the same headed Chromium window
-> (address-bar Enter, bookmark click, right-click → Duplicate). **Every row run passed.** S10–S12
-> are left blank and cannot be run in this agent-launched browser: **S10** (reopen closed tab) was
-> attempted but is blocked — Playwright's automation profile disables tab-restore, so Ctrl-Shift-T /
-> "Reopen closed tab" is greyed out (the close half worked: scope `v-0.828…` orphaned and reaped
-> ~60 s later); **S11/S12** need the browser process killed, which severs the Playwright channel.
-> All three need a separately human-launched Chrome — see §1 "Running the whole matrix with an
-> agent". Ground truth read off signal C (the server log).
+> **Complete pass — every one of the 17 rows ran, none failed.** Two browsers were used in a single
+> agent session:
+> - **Playwright-controlled headed Chromium** — the scriptable rows (S0, S1, S2a, S4, S5, S6, S7,
+>   S9, S13, S14, driven automatically) plus the browser-chrome rows **S2b, S3, S8** (hand-performed:
+>   address-bar Enter, bookmark, right-click → Duplicate).
+> - **A separately-launched plain Chromium** (normal profile, outside Playwright) — **S10, S11, S12**,
+>   which the Playwright browser can't do: its automation profile disables tab-restore (S10), and
+>   quitting/crashing it would sever the agent's channel (S11/S12).
+>
+> S11 and S12 are "measure" rows: both showed the restored tab getting a **new** `window.name`
+> (scope reset), consistent with the documented `window.name` fragility — recorded as the measured
+> outcome, not a bug. Ground truth read off signal C (the server log). See §1 "Running the whole
+> matrix with an agent" for the workflow. Scopes advanced a shared counter, so each new scope shows
+> the next `Value`.
 >
 > Note the split that S2 exists for: **S2a** (programmatic `page.goto(location.href)`) and **S2b**
 > (a real address-bar Enter) both **preserve** `window.name` on Chrome — but only S2b exercises the
@@ -391,9 +394,9 @@ awaiting a real run._
 | S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 7` preserved (bfcache restore), no new `Created` |
 | S8 | passes (hand-run) — right-click → Duplicate: the duplicate got a fresh `window.name` `v-0.828…` + `Value: 9` and its own `Created TabScope{…}`; the source scope `v-0.194…` stayed alive → two distinct scopes, no collision |
 | S9 | passes — `window.open('/tab-scoped-route')`: new tab got a fresh `window.name` `v-0.5155…` + its own `Created TabScope{…}` → distinct new scope (no mis-merge) |
-| S10 | |
-| S11 | |
-| S12 | |
+| S10 | passes (plain Chromium) — close tab + Ctrl-Shift-T: reopened tab got a **fresh** `window.name` `v-0.8716…` + `Value: 11` and its own `Created`; old scope `v-0.4487…` orphaned then reaped → new scope, as expected (reopen does not preserve `window.name`) |
+| S11 | measured, expected "undefined" (plain Chromium) — "Continue where you left off" + quit/relaunch: restored tab got a **new** scope both times (`v-0.6887…`/`Value: 12`, reproduced `v-0.8596…`/`Value: 13`), each within the 60 s grace (old scope still alive) → session-restore does **not** preserve `window.name`; old scope reaps ~60 s later (spurious destroy) |
+| S12 | measured, expected "undefined" (plain Chromium) — real crash (agent SIGKILLed the main browser process) + Restore: restored tab got a **new** scope `v-0.4551…`/`Value: 15` → crash-restore does **not** preserve `window.name` either (same reset as S11). Note: a first `pkill -9` hit only a child renderer → page auto-reloaded (`v-0.0008…`), not a valid crash; killing the *main* (no `--type=`) process gave the genuine restore path |
 | S13 | passes — same-origin full-navigate away (`/tab-scoped-route`) then Back to `/`: `window.name` + `Value: 7` preserved, no new `Created` (bfcache restore) |
 | S14 | passes — `/preserve` `location.reload()`: `Value: 7` preserved, no reset, no `Created`/`Destroying` |
 
