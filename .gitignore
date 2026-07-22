@@ -24,4 +24,7 @@ target
 **/vite.generated.ts
 **/node_modules
 
+# Playwright-MCP working files (snapshots/console logs from browser-driven testing)
+.playwright-mcp
+
 !**/src/main/dev-bundle/webapp/VAADIN/build
