@@ -205,7 +205,7 @@ reasoning.
 
 ## Limitations
 
-The functionality of this prototype depends on browsers preserving the `window.name` value on
+The functionality of this library depends on browsers preserving the `window.name` value on
 navigation. If a browser drops it — e.g. on an address-bar reload or a bookmark click — that
 navigation arrives as a brand-new tab scope. Historically **Safari 18.3.1** did this (with Web
 Inspector closed), but a full cross-browser sweep on 2026-07-22 found **current Chrome, Firefox and
