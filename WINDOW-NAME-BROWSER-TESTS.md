@@ -218,10 +218,13 @@ Each entry leads with its expected verdict. The harness must be running and you 
   Browsers clear `window.name` on cross-origin navigation for security and may or may not restore it
   on Back — this row measures that. A new scope here is a real finding.
 
-- **S8 — Duplicate Tab.** *Expected: new scope.* Right-click the tab → **Duplicate**
-  (Chrome/Edge/Safari) or middle-tools equivalent. The duplicate typically *copies* `window.name`,
-  so both tabs may momentarily claim the same ID. Record what the duplicate shows: same ID/`Value`
-  (name copied) vs. new.
+- **S8 — Duplicate Tab (human only).** *Expected: new scope — the duplicate must get a fresh
+  `window.name`.* Right-click the tab → **Duplicate**. Confirm the new tab shows a **different**
+  Browser tab ID + `Value` and logs its own `Created TabScope{…}`. **If instead it shows the same ID
+  with no new `Created`**, the two tabs have collided on one `TabScope` (shared `Value`, and a
+  `@TabScoped` instance would be yanked between the two live UIs — the "Can't move a node from one
+  state tree to another" hazard the instantiator exists to prevent) — a real isolation failure;
+  record as `fails`. Observed new-scope on Chromium 150 and LibreWolf 149.
 
 - **S9 — `target=_blank`.** *Expected: new scope.* From the console run
   `window.open('http://localhost:8080/tab-scoped-route')` (or any link opening a new tab). The new
@@ -307,10 +310,11 @@ templates awaiting a real run._
 
 ## Chrome (Chromium 150.0.7871.114, headless via Playwright MCP) — 2026-07-22
 
-> Automated pass only. Rows left blank were not exercised — S2b/S3/S8/S10–S12 are not scriptable
-> (see §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in §1,
-> headless Chrome preserves `window.name` across every scriptable navigation, so these confirm the
-> happy path but cannot surface a name drop.
+> Mostly an automated (headless) pass; **S8 was hand-driven** (Duplicate Tab in a headed session,
+> tabs then examined via Playwright). Rows left blank were not exercised — S2b/S3/S10–S12 are not
+> scriptable (see §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in
+> §1, headless Chrome preserves `window.name` across every scriptable navigation, so the automated
+> rows confirm the happy path but cannot surface a name drop.
 
 | Scenario | Outcome |
 |----------|---------|
@@ -323,7 +327,7 @@ templates awaiting a real run._
 | S5 | |
 | S6 | |
 | S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 4` preserved (bfcache restore) |
-| S8 | |
+| S8 | passes — Duplicate Tab: new tab got a distinct ID `v-0.5608…` + `Value: 5` and its own `Created TabScope{…}`; all four open tabs held distinct names (no scope collision) |
 | S9 | |
 | S10 | |
 | S11 | |
