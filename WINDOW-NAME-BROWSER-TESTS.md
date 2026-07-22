@@ -62,6 +62,50 @@ Run the whole matrix once per browser. For a clean baseline between browsers, ei
 private/incognito window or clear the site for `localhost:8080` (this drops the `JSESSIONID`, so a
 fresh Vaadin session — and fresh `Value` counter — starts).
 
+### Automating a pass (Playwright / headless Chrome)
+
+Most rows can be driven from Playwright (or any DevTools-protocol driver) against headless
+Chromium, which is a fast way to smoke-test the Chrome chapter and the harness itself. Read all
+three signals per row with one `page.evaluate`:
+
+```js
+() => ({
+  windowName: window.name,
+  tabId: document.body.innerText.match(/Browser tab ID: (\S+)/)?.[1],
+  value:  document.body.innerText.match(/Value: (\d+)/)?.[1],
+})
+```
+
+| Row | How to drive it | Notes |
+|-----|-----------------|-------|
+| S0  | open a 2nd tab, navigate it to `/` | expect a distinct `windowName` + `Value` |
+| S1  | `location.reload()` | true F5 |
+| S2  | `page.goto(sameUrl)` | **approximation only** — see the caveat below |
+| S4  | click a SideNav link, then click back | |
+| S5  | `document.location = location.href` | |
+| S6  | `page.goBack()` / `page.goForward()` | |
+| S7  | `page.goto('https://example.com')` then `page.goBack()` | needs outbound network |
+| S9  | `window.open('http://localhost:8080/tab-scoped-route')` | new tab → fresh name |
+| S13 | link away same-origin, then `page.goBack()` | bfcache restore |
+| S14 | open `/preserve`, `location.reload()` | |
+
+**Strictly manual — no Playwright hook, hand-run these in a real browser:**
+
+- **S3** (bookmark click), **S8** (Duplicate Tab), **S10** (reopen-closed-tab, Cmd/Ctrl-Shift-T),
+  **S11** (restore-after-quit), **S12** (restore-after-crash) — these are browser-chrome / session
+  actions with no page-scriptable equivalent.
+
+**Two caveats that make automation a smoke test, not a substitute:**
+
+1. **Headless Chrome preserves `window.name` across every scriptable navigation** (`goto`,
+   `reload`, `goBack`). So an automated pass confirms the *happy path* and that the harness/signals
+   react, but it **cannot reproduce a name drop** — the whole point of S2/S3. The Safari failure in
+   particular is unreachable from headless Chrome and must be hand-run in real Safari (see the
+   Safari modifier in §4).
+2. **`page.goto(sameUrl)` is not the S2 code path.** A real address-bar Enter is what trips Safari;
+   `goto` is closer to a programmatic reload and always preserves the name in Chromium. Treat S2/S3
+   as "manual on Safari, informational-only when automated."
+
 ### Browsers to cover (issue #2)
 
 | # | Browser | Platform | How to reach it |
@@ -108,6 +152,13 @@ DrawerToggle if collapsed). This is the raw `window.name` as the server saw it v
 | Tab Scoped View | `/tab-scoped-route` | `@TabScoped` cached instance — cross-check caching survives too |
 | @PreserveOnRefresh View | `/preserve` | `@PreserveOnRefresh` path — the beacon-hook / no-reset-on-F5 case |
 
+The SideNav also shows two **"(No App Layout)"** variants — `/main-view-no-app-layout` and
+`/tab-scoped-route-no-app-layout` — the same views rendered without the `AppLayout` wrapper. They
+are **not required** for the matrix (tab scoping is independent of the layout), but are handy to
+cross-check a "preserved"/"dropped" verdict on a page that isn't wrapped in `AppLayout`. Signal A's
+"Browser tab ID" is drawn in the `AppLayout` drawer, so on these variants read the verdict off
+signals B (`Value`) and C (server log) instead.
+
 ---
 
 ## 3. Scenarios
@@ -123,8 +174,8 @@ new scope" rows are not bugs; the point there is to confirm it's a genuine new t
 |----|----------|----------|
 | S0 | Control: open `/` in a 2nd tab | new scope (distinct name + value) |
 | S1 | Plain reload (F5 / Cmd-R) | preserved |
-| S2 | Reload via address-bar Enter (focus URL, press Enter) | preserved |
-| S3 | Reload via bookmark click | preserved |
+| S2 | Reload via address-bar Enter (focus URL, press Enter) | preserved on all browsers **except Safari**, which drops it — see note |
+| S3 | Reload via bookmark click | preserved on all browsers **except Safari**, which drops it — see note |
 | S4 | In-app link click (SideNav → another view) then back | preserved |
 | S5 | `document.location = location.href` from console | preserved |
 | S6 | Back / Forward navigation (same origin) | preserved |
@@ -136,6 +187,14 @@ new scope" rows are not bugs; the point there is to confirm it's a genuine new t
 | S12 | Restore-after-crash | undefined — measure |
 | S13 | bfcache restore (Back into a page left via link) | preserved |
 | S14 | `@PreserveOnRefresh` route F5 (`/preserve`) | preserved, no reset |
+
+> **S2 / S3 and Safari.** These two rows are expected to **pass on Chrome, Firefox and Edge**
+> (`window.name` preserved) and to **fail on Safari** — Safari 18.3.1 with Web Inspector *closed*
+> was observed to drop `window.name` on an address-bar/bookmark reload. That drop is a genuine
+> failure of the tab-identity guarantee (a spurious destroy follows ~60 s later), so **on Safari
+> record S2/S3 as `fails`** with the note "expected — this is how Safari works". It is not a bug in
+> this library and there is no server-side fix (see §6); recording it as a failure — rather than
+> quietly excusing it — is what keeps Safari's column in the outcome tables honest.
 
 ---
 
@@ -154,11 +213,12 @@ action, compare, and glance at the server console (signal C).
   same tab ID, **no** new `Created`.
 
 - **S2 — Address-bar reload.** Click into the address bar (or Cmd/Ctrl-L), leave the URL unchanged,
-  press **Enter**. *This is the known Safari failure path* — Safari 18.3.1 with Web Inspector
-  **closed** was observed to drop `window.name` here. Watch for a new `Value` + new `Created`.
+  press **Enter**. On Chrome/Firefox/Edge expect **preserved**. *This is the known Safari failure
+  path* — Safari 18.3.1 with Web Inspector **closed** drops `window.name` here (new `Value` + new
+  `Created`); record that as `fails` per the S2/S3 note in §3.
 
 - **S3 — Bookmark reload.** Bookmark `http://localhost:8080/` once. Then, in the same tab, click the
-  bookmark. Same expectation and same suspected Safari failure as S2.
+  bookmark. Same expectation as S2: preserved everywhere except Safari, where it fails as documented.
 
 - **S4 — In-app navigation.** Click a SideNav entry (e.g. "Tab Scoped View"), then click back to
   "Main View" (or use browser Back). Router navigation stays within one document; expect preserved.
