@@ -206,9 +206,13 @@ reasoning.
 ## Limitations
 
 The functionality of this prototype depends on browsers preserving the `window.name` value on
-navigation. Some browsers (notably Safari, and possibly Chrome) do **not** preserve it in all
-cases — e.g. when a URL is typed into the address bar or a bookmark is clicked — which makes
-such a navigation arrive as a brand-new tab scope.
+navigation. If a browser drops it — e.g. on an address-bar reload or a bookmark click — that
+navigation arrives as a brand-new tab scope. Historically **Safari 18.3.1** did this (with Web
+Inspector closed), but a full cross-browser sweep on 2026-07-22 found **current Chrome, Firefox and
+Safari 26.5.2 all preserve `window.name`** across every reload/navigation — the Safari drop is fixed
+as of 26.5.2. Quit/crash-restore and reopen-closed-tab legitimately start a fresh scope on every
+browser. The complete matrix and per-browser results are in
+**[WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md)**.
 
 The exact browser behaviors, the reload/refresh mechanics, tab-scope cleanup, and the reasons
 behind every design choice are documented in **[INTERNALS.md](INTERNALS.md)**.

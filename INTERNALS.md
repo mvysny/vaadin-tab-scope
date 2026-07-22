@@ -158,23 +158,30 @@ actions normally trigger a navigation that *should* preserve it:
 - Going forward/back in history
 - A Selenium-controlled `Driver` performing page `get()`
 
-However, some browsers do **not** preserve `window.name` under some of these:
+`window.name` preservation has proven browser- and version-dependent:
 
-- **Safari 18.3.1** does not preserve `window.name` when a URL is typed into the address bar via
-  keyboard, or when a bookmarked URL is clicked. (TODO untested: possibly also on back/forward,
-  and when a Selenium driver performs `get()`.)
-  - When Safari's dev tools (Web Inspector) are open, `window.name` *is* preserved.
-- Similar behavior has been observed with **Chrome** — unconfirmed, TODO verify.
+- **Safari 18.3.1** did **not** preserve `window.name` when a URL was typed into the address bar via
+  keyboard, or when a bookmarked URL was clicked — though it *was* preserved when Web Inspector was
+  open. **This is fixed as of Safari 26.5.2 / macOS Tahoe** (confirmed 2026-07-22): the full matrix
+  was hand-run with Web Inspector both closed and open, and `window.name` is preserved in every
+  reload/navigation case with no Inspector-dependent difference. Treat the drop as an 18.3.x-era bug,
+  not current behavior.
+- **Chrome** (Chromium 150) and **Firefox/LibreWolf** preserve `window.name` across every reload and
+  navigation; the earlier "possibly Chrome too" suspicion was **not** reproduced.
+- Across every browser tested, quit/crash-restore and reopen-closed-tab do **not** preserve
+  `window.name` — a restored/reopened tab arrives as a fresh scope. That is expected (the browser
+  mints a new `window.name`), not a bug.
 
 When `window.name` is not preserved, the navigation arrives as a brand-new tab scope. See the
-discussion in [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141).
+discussion in [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141) and the full
+cross-browser results in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md).
 
-The *consequence* — a reload with a changed `window.name` producing a fresh scope — is now tested
-browserlessly in `TabIdentityTest` via `MockBrowser.reload(newWindowName)`. What still needs a real
-browser is confirming *which* browsers/actions actually fail to preserve `window.name` (the Safari
-rows above); Karibu can only simulate the changed-name outcome, not measure a given browser. The
-manual cross-browser sweep that measures it — scenarios, exact steps, and the latest recorded
-outcomes — lives in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md) ([issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2)).
+The *consequence* — a reload with a changed `window.name` producing a fresh scope — is tested
+browserlessly in `TabIdentityTest` via `MockBrowser.reload(newWindowName)`. Confirming *which*
+browsers/actions actually fail to preserve `window.name` needs a real browser (Karibu can only
+simulate the changed-name outcome, not measure a given browser); that sweep has now been run for
+Chrome, Firefox and Safari (closed + open) — scenarios, exact steps, and the latest recorded
+outcomes live in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md) ([issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2)).
 
 ## Cleanup
 

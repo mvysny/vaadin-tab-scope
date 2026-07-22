@@ -40,7 +40,7 @@ Three pieces implement tab scoping; changes to one usually require thinking abou
 
 ### Known fragility: `window.name`
 
-Tab identity depends on the browser preserving `window.name` across navigation. Some browsers (notably Safari 18.3.1 with dev tools closed) do **not** preserve it when typing a URL or clicking a bookmark — these arrive as a new tab scope. See [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141) and INTERNALS.md ("Tab identity fragility") before proposing changes that rely on tab identity.
+Tab identity depends on the browser preserving `window.name` across navigation. **Safari 18.3.1 with dev tools closed** dropped it when typing a URL or clicking a bookmark (arriving as a new tab scope) — but the 2026-07-22 cross-browser sweep found this **fixed as of Safari 26.5.2**, and current Chrome/Firefox/Safari all preserve `window.name`. The fragility is still real in principle (a browser *could* drop it), just not reproducible on current browsers. See [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md) for the full results, [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141), and INTERNALS.md ("Tab identity fragility") before proposing changes that rely on tab identity.
 
 ### Cleanup: prompt on tab close, still grace-gated
 
