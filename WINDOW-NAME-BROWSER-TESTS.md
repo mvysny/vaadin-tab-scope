@@ -89,12 +89,28 @@ three signals per row with one `page.evaluate`:
 | S13 | link away same-origin, then `page.goBack()` | bfcache restore |
 | S14 | open `/preserve`, `location.reload()` | |
 
-**Strictly manual — no Playwright hook, hand-run these in a real browser:**
+**Strictly manual — hand-run these in a real browser.** Each is human-only for a concrete reason.
+Two of them (**S8**, S10) are blocked purely by a **missing Playwright MCP tool**; the rest are
+browser-*chrome* or browser-*lifecycle* actions that no page-automation surface reaches — not the
+MCP, and not raw Playwright/CDP either, so a new MCP tool alone wouldn't unblock them.
 
-- **S2b** (real address-bar Enter), **S3** (bookmark click), **S8** (Duplicate Tab),
-  **S10** (reopen-closed-tab, Cmd/Ctrl-Shift-T), **S11** (restore-after-quit),
-  **S12** (restore-after-crash) — these are browser-chrome / session actions with no page-scriptable
-  equivalent.
+- **S2b** (address-bar Enter) — the URL bar is browser chrome, not page DOM. No MCP tool targets it,
+  and even raw Playwright/CDP can't type into the omnibox; `browser_navigate` is a *programmatic*
+  goto (that's S2a), a different code path that never trips the Safari drop.
+- **S3** (bookmark click) — bookmarks live in browser chrome; no MCP tool, and no Playwright/CDP API
+  creates or clicks them.
+- **S8** (Duplicate Tab) — **missing MCP tool:** `browser_tabs` offers new/select/close/list but no
+  *duplicate*. (Underlying CDP has no duplicate-target either — `Target.createTarget` only opens a
+  *fresh* tab, i.e. S0/S9 — so this one stays manual until such a tool exists.) The user drives it
+  by right-clicking the tab; the driver can only inspect the resulting tabs afterward.
+- **S10** (reopen-closed-tab, Cmd/Ctrl-Shift-T) — **missing MCP tool** for the browser's
+  reopen-closed-tab command; it's a chrome/history action, and `browser_press_key` sends keys to the
+  *page*, not to browser chrome, so the shortcut can't be synthesized.
+- **S11** (restore-after-quit) — needs a full **quit + relaunch with session restore**. The MCP owns
+  the browser lifecycle and exposes no quit-and-relaunch tool; performing it would end the
+  automation session, so it can't be scripted from within one.
+- **S12** (restore-after-crash) — needs **force-killing the browser process** then choosing Restore.
+  Same lifecycle problem as S11, and killing the MCP-managed browser kills the driver with it.
 
 **Two caveats that make automation a smoke test, not a substitute:**
 
