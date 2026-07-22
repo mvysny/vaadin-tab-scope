@@ -158,6 +158,18 @@ The only thing the human must do is the physical chrome-actions and reporting si
 plain-Chromium rows; the agent owns every verdict via signal C. Nothing in the matrix (bar the
 human's hands) is beyond a single agent session.
 
+### Driving Firefox (B2)
+
+The same Playwright MCP drives Firefox — set `--browser firefox` in its args (this repo's dev box
+is configured that way). One constraint that isn't obvious: Playwright drives **only its own bundled
+Firefox build** (`playwright install firefox`); a stock, distro, or snap-packaged Firefox is *not* a
+valid Playwright channel and can't be driven at all. So the scriptable rows and the human-guided
+chrome-action rows (S2b/S3/S8) run exactly as in the Chrome chapter. The **plain-second-browser**
+lifecycle rows (S10–S12) need a *separately-installed* real Firefox — Playwright's bundled build is
+the driver's own channel, the same reason the Chrome chapter co-launches a plain Chromium. Expect the
+automation caveats (scripted navigations preserve `window.name`; S2b/S3 stay human-only) to hold the
+same as Chrome, but confirm when the chapter is actually run.
+
 ### Browsers to cover (issue #2)
 
 | # | Browser | Platform | How to reach it |
