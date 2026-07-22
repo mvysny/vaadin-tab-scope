@@ -1,5 +1,6 @@
 package com.github.mvysny.vaadin.tabscope;
 
+import com.vaadin.flow.shared.Registration;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -10,16 +11,22 @@ import java.util.List;
  * captures the reap tasks so a test can fire them (or observe that they were cancelled) at a
  * deterministic moment, with no real sleeps — matching the suite's {@code CLEANUP_DURATION_MS}
  * seam philosophy. Install it via {@code TabScope.reapScheduler = ...} in {@code @BeforeEach} and
- * clear it in {@code @AfterEach}; while installed, no real reaper thread is ever created.
+ * restore a fresh {@code ExecutorReapScheduler} in {@code @AfterEach}; while installed, no real
+ * reaper thread is ever created.
  */
 final class ManualReapScheduler implements TabScope.ReapScheduler {
     private final List<Runnable> pending = new ArrayList<>();
 
     @NotNull
     @Override
-    public Cancellation schedule(@NotNull Runnable task, long delayMs) {
+    public Registration schedule(@NotNull Runnable task, long delayMs) {
         pending.add(task);
         return () -> pending.remove(task);
+    }
+
+    /** No-op: the manual double holds no thread or other resource to release. */
+    @Override
+    public void close() {
     }
 
     /** Number of armed-but-not-yet-fired reaps; 0 after every armed reap has fired or been cancelled. */

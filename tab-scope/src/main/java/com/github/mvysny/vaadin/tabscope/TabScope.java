@@ -81,61 +81,65 @@ public final class TabScope implements Serializable {
 
     /**
      * Schedules the one-shot orphan reap that fires {@link #CLEANUP_DURATION_MS} after a scope
-     * orphans, so a sole last tab is reaped without waiting for another request. Production uses a
-     * shared daemon {@link ScheduledExecutorService}; the seam exists <em>solely</em> so tests can
-     * inject a manual scheduler and fire (or assert cancellation of) the reap deterministically,
-     * without real sleeps (see {@code TabScopeLifecycleTest}).
+     * orphans, so a sole last tab is reaped without waiting for another request. The production
+     * implementation ({@link ExecutorReapScheduler}) owns a shared daemon
+     * {@link ScheduledExecutorService}; the interface exists <em>solely</em> so tests can swap in a
+     * manual scheduler and fire (or assert cancellation of) the reap deterministically, without real
+     * sleeps (see {@code TabScopeLifecycleTest}).
      */
-    interface ReapScheduler {
+    interface ReapScheduler extends AutoCloseable {
         /**
-         * @param task     the reap, to run after {@code delayMs}
-         * @param delayMs  delay in milliseconds
-         * @return a handle whose {@link Cancellation#cancel()} prevents the task if it hasn't run yet
+         * @param task    the reap, to run after {@code delayMs}
+         * @param delayMs delay in milliseconds
+         * @return a handle whose {@link Registration#remove()} prevents the task if it hasn't run yet
          */
         @NotNull
-        Cancellation schedule(@NotNull Runnable task, long delayMs);
+        Registration schedule(@NotNull Runnable task, long delayMs);
 
-        interface Cancellation {
-            void cancel();
-        }
+        /**
+         * Releases scheduler resources (e.g. the daemon thread) on {@link VaadinService} destroy.
+         * Narrows {@link AutoCloseable#close()} to throw nothing.
+         */
+        @Override
+        void close();
     }
 
     /**
-     * Test seam: when non-null, used instead of the default daemon executor. Set by tests only.
+     * The active reap scheduler. Defaults to the executor-backed production implementation; tests
+     * replace it with a manual one and restore a fresh {@link ExecutorReapScheduler} afterwards.
      */
-    @Nullable
-    static ReapScheduler reapScheduler = null;
-
-    /**
-     * The shared daemon executor backing the default {@link #scheduler()}. Lazily created, and shut
-     * down + nulled on {@link VaadinService} destroy so a redeploy doesn't leak the thread.
-     */
-    @Nullable
-    private static ScheduledExecutorService reapExecutor = null;
-
     @NotNull
-    private static synchronized ReapScheduler scheduler() {
-        if (reapScheduler != null) {
-            return reapScheduler;
-        }
-        if (reapExecutor == null) {
-            reapExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-                final Thread t = new Thread(r, "tab-scope-reaper");
-                t.setDaemon(true);
-                return t;
-            });
-        }
-        final ScheduledExecutorService exec = reapExecutor;
-        return (task, delayMs) -> {
-            final ScheduledFuture<?> future = exec.schedule(task, delayMs, TimeUnit.MILLISECONDS);
-            return () -> future.cancel(false);
-        };
-    }
+    static volatile ReapScheduler reapScheduler = new ExecutorReapScheduler();
 
-    private static synchronized void shutdownReaper() {
-        if (reapExecutor != null) {
-            reapExecutor.shutdownNow();
-            reapExecutor = null;
+    /**
+     * Production {@link ReapScheduler}: owns a single daemon executor, created lazily on first
+     * schedule and shut down (and forgotten, so a later schedule recreates it) on service destroy —
+     * this way a servlet-container redeploy doesn't leak the thread or its classloader.
+     */
+    static final class ExecutorReapScheduler implements ReapScheduler {
+        @Nullable
+        private ScheduledExecutorService executor;
+
+        @NotNull
+        @Override
+        public synchronized Registration schedule(@NotNull Runnable task, long delayMs) {
+            if (executor == null) {
+                executor = Executors.newSingleThreadScheduledExecutor(r -> {
+                    final Thread t = new Thread(r, "tab-scope-reaper");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
+            final ScheduledFuture<?> future = executor.schedule(task, delayMs, TimeUnit.MILLISECONDS);
+            return () -> future.cancel(false);
+        }
+
+        @Override
+        public synchronized void close() {
+            if (executor != null) {
+                executor.shutdownNow();
+                executor = null;
+            }
         }
     }
 
@@ -177,7 +181,7 @@ public final class TabScope implements Serializable {
          * the request-driven sweep + session-destroy backstop still cover a deserialized scope.
          */
         @Nullable
-        private transient ReapScheduler.Cancellation pendingReap = null;
+        private transient Registration pendingReap = null;
 
         private void requireNotClosed() {
             if (closed) {
@@ -245,12 +249,12 @@ public final class TabScope implements Serializable {
                 return;
             }
             cancelReap();
-            pendingReap = scheduler().schedule(() -> reap(session), CLEANUP_DURATION_MS);
+            pendingReap = reapScheduler.schedule(() -> reap(session), CLEANUP_DURATION_MS);
         }
 
         private void cancelReap() {
             if (pendingReap != null) {
-                pendingReap.cancel();
+                pendingReap.remove();
                 pendingReap = null;
             }
         }
@@ -386,7 +390,7 @@ public final class TabScope implements Serializable {
         });
         // Shut the shared reaper thread down with the service, so a servlet-container redeploy
         // doesn't leak it (and its classloader).
-        service.addServiceDestroyListener(e -> shutdownReaper());
+        service.addServiceDestroyListener(e -> reapScheduler.close());
         // The UI destroy listeners are added in the init() function.
     }
 
