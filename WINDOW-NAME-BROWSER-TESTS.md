@@ -126,30 +126,37 @@ MCP, and not raw Playwright/CDP either, so a new MCP tool alone wouldn't unblock
 
 ### Running the whole matrix with an agent
 
-Every row **except S11 and S12** can be driven from a single agent session — this is how the Chrome
-chapter under [Last Testing Outcome](#last-testing-outcome) was produced. The agent:
+Every row **except S10, S11 and S12** can be driven from a single agent session — this is how the
+Chrome chapter under [Last Testing Outcome](#last-testing-outcome) was produced. The agent:
 
 1. **Starts the harness and the browser.** It runs `./gradlew :testapp:run` (server) and launches
    Chrome via Playwright. That Playwright browser is **headed and visible to the human**, so the one
    window serves both the agent's automation and the human's chrome-actions.
 2. **Automates the scriptable rows** itself — S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14 (the table
    above) — reading signals A/B with one `page.evaluate` and signal C from the server log.
-3. **Guides the human one row at a time** for the browser-chrome / history actions it cannot
-   synthesize — **S2b** (address-bar Enter), **S3** (bookmark), **S8** (Duplicate Tab), **S10**
-   (reopen closed tab). Per row the agent notes the current server-log position, tells the human
-   exactly what to do, the human reports what they see (tab ID + `Value`), and the agent renders the
-   verdict against signal C — the ground truth, since the log prints the `window.name` the server
-   received plus every `Created`/orphaned/`Destroying`. The human only ever reports signals A/B; the
-   agent owns the verdict.
+3. **Guides the human one row at a time** for the browser-chrome actions it cannot synthesize —
+   **S2b** (address-bar Enter), **S3** (bookmark), **S8** (Duplicate Tab). Per row the agent notes
+   the current server-log position, tells the human exactly what to do, the human reports what they
+   see (tab ID + `Value`), and the agent renders the verdict against signal C — the ground truth,
+   since the log prints the `window.name` the server received plus every `Created`/orphaned/
+   `Destroying`. The human only ever reports signals A/B; the agent owns the verdict.
 
-**Only S11 and S12 stay out of reach even this way:** both need the browser *process* to die (a full
-quit, or a force-kill + crash-restore), which takes the Playwright-managed browser — and the agent's
-control channel — down with it. Those two remain fully manual.
+**S10, S11 and S12 stay out of reach even this way**, each for its own reason:
 
-The split is exactly §1's automation table (what the agent scripts) plus the "strictly manual" list
-minus S11/S12 (what the human does under agent guidance). Note S10 is human-driven *here* even
-though it sits in the "missing MCP tool" bucket above: that bucket is about the agent *synthesizing*
-the action, whereas a human performs it directly in the visible window with the browser still alive.
+- **S10** (reopen closed tab) — Playwright launches Chrome with a throwaway automation profile whose
+  **tab-restore history is disabled**: after closing a tab, Ctrl-Shift-T does nothing and the
+  right-click **"Reopen closed tab"** item is **greyed out** (confirmed 2026-07-22, Chromium 150).
+  So even the human can't perform it in the agent-launched window. The *close* half still works —
+  the log shows the closed scope orphan and reap ~60 s later — but the reopen that S10 measures
+  cannot happen here.
+- **S11 / S12** — both need the browser *process* to die (a full quit, or a force-kill +
+  crash-restore), which takes the Playwright-managed browser, and the agent's control channel, down
+  with it.
+
+All three *can* be run against a **separately human-launched** Chrome (a normal profile, started
+outside Playwright): the agent still reads signal C from the server log, it just can't read signals
+A/B via Playwright for that window, so the human reports them. For a one-browser agent run, treat
+S10–S12 as the manual remainder.
 
 ### Browsers to cover (issue #2)
 
@@ -357,9 +364,13 @@ awaiting a real run._
 
 > The scriptable rows (S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14) were driven from Playwright; the
 > browser-chrome rows **S2b, S3 and S8 were hand-performed** in the same headed Chromium window
-> (address-bar Enter, bookmark click, right-click → Duplicate). **Every row run passed.** Only
-> S10–S12 are left blank — reopen-closed-tab and restore-after-quit/crash need Chrome to be
-> closed/relaunched, deferred to a later pass. Ground truth read off signal C (the server log).
+> (address-bar Enter, bookmark click, right-click → Duplicate). **Every row run passed.** S10–S12
+> are left blank and cannot be run in this agent-launched browser: **S10** (reopen closed tab) was
+> attempted but is blocked — Playwright's automation profile disables tab-restore, so Ctrl-Shift-T /
+> "Reopen closed tab" is greyed out (the close half worked: scope `v-0.828…` orphaned and reaped
+> ~60 s later); **S11/S12** need the browser process killed, which severs the Playwright channel.
+> All three need a separately human-launched Chrome — see §1 "Running the whole matrix with an
+> agent". Ground truth read off signal C (the server log).
 >
 > Note the split that S2 exists for: **S2a** (programmatic `page.goto(location.href)`) and **S2b**
 > (a real address-bar Enter) both **preserve** `window.name` on Chrome — but only S2b exercises the
