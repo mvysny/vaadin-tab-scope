@@ -388,9 +388,9 @@ When a "preserved"-expected row shows ⚠️:
 
 _Chrome (Chromium 150), Firefox/LibreWolf, and Safari 26.5.2 (Web Inspector closed): complete passes
 of all 17 scenarios on 2026-07-22, below. The Chrome and Firefox chapters were two-browser-in-one-
-agent-session runs; the Safari chapter was fully hand-run on a Mac with the agent owning the server
-log (see "Driving Safari (B4)"). The Safari Web-Inspector-**open** chapter is in progress (below,
-S0–S6 done); Edge and iOS Safari are still templates awaiting a real run._
+agent-session runs; both Safari chapters (Web Inspector closed **and** open) were fully hand-run on a Mac with the agent
+owning the server log (see "Driving Safari (B4)"). Edge and iOS Safari are still templates awaiting a
+real run._
 
 ## Chrome (Chromium 150) — 2026-07-22
 
@@ -559,7 +559,12 @@ S0–S6 done); Edge and iOS Safari are still templates awaiting a real run._
 > (S0/S8/S9/S10/S11/S12) run with the *new* tab's own Inspector closed — acceptable, since those
 > expect a fresh scope regardless of Inspector state (the 18.3.1 drop was never about new tabs).
 > S5/S9 run directly in the console (no bookmarklet needed). Reference tab: `v-0.3265…` / `Value 15`.
-> **[In progress — S7–S14 pending.]**
+>
+> **Complete pass — all 17 rows; the chapter fully mirrors the closed one** (every preserve row
+> preserved, every new-scope row got a fresh scope), confirming there is **no Inspector-dependent
+> `window.name` difference on 26.5.2** — unlike 18.3.1. One sub-finding: with the Inspector open
+> Safari **disables bfcache**, so S13's Back was a full reload rather than a frozen-page restore (name
+> still preserved either way).
 
 | Scenario | Outcome |
 |----------|---------|
@@ -571,14 +576,14 @@ S0–S6 done); Edge and iOS Safari are still templates awaiting a real run._
 | S4 | passes — SideNav `/` → `/tab-scoped-route` → `/`: `0.3265 / 15`, zero log activity (in-document router nav) |
 | S5 | passes — console `document.location=location.href`: page reloaded, `0.3265 / 15` preserved, no new `Created` |
 | S6 | passes — browser Back/Forward: `/` stayed `0.3265 / 15` (Forward shows the same tab ID + the route's own `@TabScoped Value 4`), zero log activity |
-| S7 | |
-| S8 | |
-| S9 | |
-| S10 | |
-| S11 | |
-| S12 | |
-| S13 | |
-| S14 | |
+| S7 | passes — hop to `https://vaadin.com` then Back: `0.3265 / 15` preserved, beacon/orphan on leaving, no new `Created` |
+| S8 | passes — right-click → Duplicate Tab: duplicate got a fresh `v-0.8230…` / `Value 17` + its own `Created`; source `0.3265 / 15` untouched → two distinct scopes, no collision |
+| S9 | passes — console `window.open(location.origin+'/tab-scoped-route')` ran twice (first popup-blocked): two fresh tabs `v-0.3261…` and `v-0.5834…`, both `Created` (their `Value 5/6` is the route's own counter); source untouched → distinct new scopes |
+| S10 | passes (new scope, expected) — close a `/tab-scoped-route` tab (`v-0.5834…`) + Cmd-Shift-T: reopened tab got a fresh `v-0.5266…` + its own `Created`; old scope orphaned then reaped → reopen does not preserve `window.name` |
+| S11 | measured, expected "undefined" — Cmd-Q + relaunch ("reopen all windows"): restored tab got a **different** `window.name` `v-0.6523…` / `Value 21` (baseline `v-0.3265…`/15) → new scope; old scopes reaped. Not preserved across quit-restore |
+| S12 | measured, expected "undefined" — force-quit (Cmd-Opt-Esc → Force Quit) + relaunch: restored tab got a **different** `window.name` `v-0.8612…` / `Value 22` (pre-crash `v-0.6523…`/21) → new scope. Silent restore, **no crash-recovery prompt**. Not preserved across crash-restore |
+| S13 | passes — full-navigate away to `/tab-scoped-route` then Back to `/`: `0.3265 / 15` preserved. **With Web Inspector open Safari disables bfcache**, so Back was a full *reload* (two beacon/orphan cycles, a brief JS-error flash during re-bootstrap), not a frozen-page restore — same verdict, different mechanism from the closed chapter's true bfcache restore |
+| S14 | passes — `/preserve` Cmd-R: `Value 15` preserved; the beacon hook started the grace clock without closing the `@PreserveOnRefresh` UI, which reattached → no `Created`/`Destroying` |
 
 ## iOS Safari <!-- version --> — <!-- YYYY-MM-DD -->
 
