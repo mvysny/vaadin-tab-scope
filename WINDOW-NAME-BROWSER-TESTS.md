@@ -337,7 +337,7 @@ templates awaiting a real run._
 | S0 | passes — 2nd tab got a distinct ID `v-0.645…` + `Value: 4`; fresh `Created TabScope{…}` logged (signal C) |
 | S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 3` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
 | S2a | passes — `page.goto(location.href)`: `window.name` + `Value` preserved |
-| S2b | — human only, not run (real address-bar Enter; unreachable from headless Chrome) |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
