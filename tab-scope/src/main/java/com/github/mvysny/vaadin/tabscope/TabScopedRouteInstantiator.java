@@ -18,11 +18,6 @@ import org.jetbrains.annotations.NotNull;
  * {@link InstantiatorFactory}, and Spring ships its own, so shipping ours would break Spring apps.
  */
 public class TabScopedRouteInstantiator extends DefaultInstantiator {
-    /**
-     * Creates a new instantiator for the given service.
-     *
-     * @param service the service to use
-     */
     public TabScopedRouteInstantiator(VaadinService service) {
         super(service);
     }

@@ -23,10 +23,16 @@ import java.util.*;
  *     <li>Call {@link #setup(SerializableConsumer)} from {@link VaadinServiceInitListener#serviceInit(ServiceInitEvent)}</li>
  *     <li>Call {@link #getCurrent()} from everywhere else from your app: from your routes and layouts etc</li>
  * </ul>
- * <h3>Vaadin 8</h3>
+ * <h2>Vaadin 8</h2>
  * This is how the Vaadin 8 UI scope used to work. When migrating, just store your values to
  * {@link #getValues()} instead to Vaadin 8 UI; perform any initialization in the <code>tab init listener</code>,
  * passed to the {@link #setup(SerializableConsumer)}.
+ *
+ * <p>Session-confined: reading or mutating a tab scope — {@link #getCurrent()}, {@link #getValues()},
+ * {@link #addDestroyListener}, {@link #onUnloadBeacon} — requires the owning {@link VaadinSession}'s
+ * lock, held by the Vaadin UI thread during request handling. The one-time startup wiring
+ * ({@link #setup}, {@link #installTabCloseBeacon}) and the {@code volatile} config fields stand
+ * outside this.
  */
 public final class TabScope implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(TabScope.class);
@@ -87,6 +93,9 @@ public final class TabScope implements Serializable {
 
     /**
      * Tracks lifecycle of the owner tab scope.
+     *
+     * <p>Session-confined like its {@link TabScope}: every method runs under the session lock, save
+     * the scheduled {@link #reap} which fires on the reaper thread and hops onto the lock itself.
      */
     private class Lifecycle implements Serializable {
         /**
@@ -260,9 +269,10 @@ public final class TabScope implements Serializable {
     }
 
     /**
-     * Returns a map which holds all tab-scoped values stored by the app.
+     * Returns the tab-scoped value store — read and write app state here to have it preserved per browser tab.
      *
-     * @return a map which holds all tab-scoped values stored by the app.
+     * @return the live, mutable store; writes to it persist for the tab across reload and navigation
+     * @throws IllegalStateException if this scope has already been destroyed
      */
     @NotNull
     public Attributes getValues() {
@@ -404,7 +414,9 @@ public final class TabScope implements Serializable {
      * <br/>
      * Can not be called from the UI init listener itself, or before the UI init listener has been run.
      *
-     * @return the tab scope, not null.
+     * @return the current tab's scope
+     * @throws IllegalStateException if called off the Vaadin UI thread, or before this tab's
+     *                               {@link #setup(SerializableConsumer) tab-init listener} has run
      */
     @NotNull
     public static TabScope getCurrent() {

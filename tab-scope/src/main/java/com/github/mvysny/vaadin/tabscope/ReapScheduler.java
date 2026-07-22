@@ -37,6 +37,9 @@ interface ReapScheduler extends AutoCloseable {
      * Production {@link ReapScheduler}: owns a single daemon executor, created lazily on first
      * schedule and shut down (and forgotten, so a later schedule recreates it) on service destroy —
      * this way a servlet-container redeploy doesn't leak the thread or its classloader.
+     *
+     * <p>Thread-safe: {@code schedule} runs on the session thread, {@code close} on the
+     * service-destroy thread, so both are {@code synchronized}.
      */
     final class ExecutorBacked implements ReapScheduler {
         @Nullable
