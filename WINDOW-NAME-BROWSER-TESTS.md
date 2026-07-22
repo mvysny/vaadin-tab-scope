@@ -321,35 +321,44 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
-_Chrome: automated (headless) partial pass on 2026-07-22, below. All other chapters are still
-templates awaiting a real run._
+_Chrome: full automated (headless) pass of every scriptable row on 2026-07-22, below. All other
+chapters are still templates awaiting a real run._
 
-## Chrome (Chromium 150.0.7871.114, headless via Playwright MCP) — 2026-07-22
+## Chrome (Chromium 150, headless via Playwright MCP) — 2026-07-22
 
-> Mostly an automated (headless) pass; **S8 was hand-driven** (Duplicate Tab in a headed session,
-> tabs then examined via Playwright). Rows left blank were not exercised — S2b/S3/S10–S12 are not
-> scriptable (see §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in
-> §1, headless Chrome preserves `window.name` across every scriptable navigation, so the automated
-> rows confirm the happy path but cannot surface a name drop.
+> Fully automated (headless) pass — **every scriptable row (S0, S1, S2a, S4, S5, S6, S7, S9, S13,
+> S14) was driven from Playwright and passed.** Rows left blank were not exercised because they are
+> not scriptable: S2b/S3 (address-bar / bookmark — browser chrome), S8 (Duplicate Tab — no
+> `browser_tabs` duplicate action / no CDP duplicate-target), and S10–S12 (reopen-closed-tab and
+> restore-after-quit/crash — browser-lifecycle actions). See §1 "Automating a pass". As noted there,
+> headless Chrome preserves `window.name` across every scriptable navigation, so this pass confirms
+> the happy path and that the harness/signals react, but cannot surface a name drop (that is S2b's
+> job, hand-run in Safari). Ground-truth read off signal C (the server log). This run's scopes:
+> tab A `v-0.194…`, tab B `v-0.4606…` (the row-driver), a `window.open` tab `v-0.5155…`.
 
 | Scenario | Outcome |
 |----------|---------|
-| S0 | passes — 2nd tab got a distinct ID `v-0.645…` + `Value: 4`; fresh `Created TabScope{…}` logged (signal C) |
-| S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 3` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
-| S2a | passes — `page.goto(location.href)`: `window.name` + `Value` preserved |
+| S0 | passes — 2nd tab got a distinct ID `v-0.4606…` + `Value: 7` (vs. tab A `v-0.194…`/`Value: 6`); fresh `Created TabScope{v-0.4606…}` logged (signal C) |
+| S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 7` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
+| S2a | passes — `page.goto(location.href)`: `window.name` + `Value: 7` preserved, no new `Created` |
 | S2b | |
 | S3 | |
-| S4 | |
-| S5 | |
-| S6 | |
-| S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 4` preserved (bfcache restore) |
-| S8 | passes — Duplicate Tab: new tab got a distinct ID `v-0.5608…` + `Value: 5` and its own `Created TabScope{…}`; all four open tabs held distinct names (no scope collision) |
-| S9 | |
+| S4 | passes — SideNav `/` → `/tab-scoped-route` → `/`: `window.name` + `Value: 7` preserved; the `@TabScoped` route's own `Value: 1` stable across the round-trip; no new `Created` |
+| S5 | passes — `document.location = location.href`: `window.name` + `Value: 7` preserved |
+| S6 | passes — Back to `/` kept `Value: 7`, Forward kept the `@TabScoped` `Value: 1`; `window.name` preserved throughout, no new `Created` |
+| S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 7` preserved (bfcache restore), no new `Created` |
+| S8 | |
+| S9 | passes — `window.open('/tab-scoped-route')`: new tab got a fresh `window.name` `v-0.5155…` + its own `Created TabScope{…}` → distinct new scope (no mis-merge) |
 | S10 | |
 | S11 | |
 | S12 | |
-| S13 | |
-| S14 | passes — `/preserve` `location.reload()`: `Value: 4` preserved, no reset |
+| S13 | passes — same-origin full-navigate away (`/tab-scoped-route`) then Back to `/`: `window.name` + `Value: 7` preserved, no new `Created` (bfcache restore) |
+| S14 | passes — `/preserve` `location.reload()`: `Value: 7` preserved, no reset, no `Created`/`Destroying` |
+
+> **Reaper cross-check (bonus, not a matrix row).** During this run the always-on scheduled reaper
+> fired correctly: the four scopes orphaned by the prior browser-close at 09:46:25 were reaped
+> ~60 s later (`Destroying TabScope{…}` on the `tab-scope-reaper` thread at 09:47:25), with no
+> further request driving it — confirming the sole-last-tab prompt path.
 
 ## Firefox <!-- version --> — <!-- YYYY-MM-DD -->
 
