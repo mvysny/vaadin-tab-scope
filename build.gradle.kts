@@ -40,6 +40,11 @@ subprojects {
 
         tasks.withType<Javadoc> {
             isFailOnError = false
+            // Drop doclint's `missing` group: it demands a comment on every element, including
+            // synthetic default constructors and private fields, which would force the tautological
+            // "creates an instance" docs the writing-javadoc house style explicitly bans. Keep the
+            // load-bearing checks (broken links, malformed HTML, bad references).
+            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:all,-missing", "-quiet")
         }
 
         // The JDK 22+ standard doclet embeds ~4 MB of DejaVu web fonts into the javadoc HTML

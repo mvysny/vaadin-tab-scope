@@ -42,6 +42,10 @@ public class TabScopedRouteInstantiator extends DefaultInstantiator {
         return super.getOrCreate(type);
     }
 
+    /**
+     * The {@link InstantiatorFactory} that hands Vaadin a {@link TabScopedRouteInstantiator}. Name it
+     * in your app's {@code META-INF/services/com.vaadin.flow.di.InstantiatorFactory}.
+     */
     public static class Factory implements InstantiatorFactory {
         @Override
         public Instantiator createInstantitor(VaadinService service) {
