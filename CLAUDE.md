@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Whenever working on this project, auto-load `gradle` and `writing-javadoc` skills.
+
 ## Project purpose
 
 Tab-scoped values and tab-scoped routes for Vaadin Flow (Vaadin 24/25), without Spring — pure Servlet + Vaadin Boot. The project exists to work around [vaadin/flow#13468](https://github.com/vaadin/flow/issues/13468): unlike Vaadin 8's `UI`, a Vaadin Flow `UI` does not survive page reload, and `UIInitListener` fires multiple times per browser tab. README.md is the user-facing kick-start; **INTERNALS.md holds the investigated facts and design rationale**; ideas/ holds forward-looking proposals.
