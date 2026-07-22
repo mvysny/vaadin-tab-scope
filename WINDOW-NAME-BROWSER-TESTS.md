@@ -367,8 +367,9 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
-_Chrome: complete pass of all 17 scenarios on 2026-07-22, below — two browsers in one agent session
-(see the chapter). All other browser chapters are templates awaiting a real run._
+_Chrome (Chromium 150) and Firefox/LibreWolf: both complete passes of all 17 scenarios on
+2026-07-22, below — each a two-browser-in-one-agent-session run (see the chapters). Edge and the
+Safari chapters are still templates awaiting a real run._
 
 ## Chrome (Chromium 150) — 2026-07-22
 
@@ -417,26 +418,52 @@ _Chrome: complete pass of all 17 scenarios on 2026-07-22, below — two browsers
 > ~60 s later (`Destroying TabScope{…}` on the `tab-scope-reaper` thread at 09:47:25), with no
 > further request driving it — confirming the sole-last-tab prompt path.
 
-## Firefox <!-- version --> — <!-- YYYY-MM-DD -->
+## Firefox 152.0 (scripted) / LibreWolf 149.0.2-2 (hand-run) — 2026-07-22
+
+> **Complete pass — all 17 rows ran; none surfaced a bug.** This chapter mixes **two Gecko browsers**
+> because no single driver covers every row (the same two-browser split as the Chrome chapter, one
+> engine family):
+> - **Scripted rows** — **S0, S1, S2a, S4, S5, S6, S7, S9, S13, S14** — driven by the Playwright MCP
+>   against its own bundled **Firefox 152.0** build (`playwright install firefox`; a stock/distro/snap
+>   Firefox is not a valid Playwright channel — see §1 "Driving Firefox"). Signals A/B read via one
+>   `page.evaluate`, signal C from the server log (ground truth). Firefox preserved `window.name`
+>   across every scriptable navigation and issued a fresh scope for each genuinely new tab (S0, S9).
+>   Reference tab: `v-0.9761…` (`Value: 4`).
+> - **Hand-run rows** — **S2b, S3, S8, S10, S11, S12** — performed by the human on **LibreWolf
+>   149.0.2-2** (a Firefox fork; the Playwright build can't reach the omnibox, do a duplicate-tab, or
+>   be quit/crashed without severing control). The agent read every verdict off signal C. Reference
+>   tab: `v-0.3074…` (`Value: 7`); scopes advanced a shared counter, so each new scope shows the next
+>   `Value`.
+>
+> The engine-level `window.name` behavior matched between the two builds (preserve on reload/nav,
+> fresh scope on new/duplicate/reopen/restore), so the split does not muddy the result — but the row
+> tags below record exactly which build produced each cell.
+>
+> **LibreWolf-specific gotcha (recorded, not a library bug):** LibreWolf ships **"Delete cookies and
+> site data when LibreWolf is closed" ON by default**. Left on, it drops the `JSESSIONID` on every
+> quit — so S11/S12 would start a brand-new Vaadin session regardless of `window.name`. It was
+> disabled for this run so the restore rows measured `window.name` alone. Also: on relaunch after the
+> S12 crash LibreWolf showed **no crash-recovery prompt** — with "Open previous windows and tabs"
+> enabled it silently restored the session, treating the crash like a normal restart.
 
 | Scenario | Outcome |
 |----------|---------|
-| S0 | |
-| S1 | |
-| S2a | |
-| S2b | |
-| S3 | |
-| S4 | |
-| S5 | |
-| S6 | |
-| S7 | |
-| S8 | |
-| S9 | |
-| S10 | |
-| S11 | |
-| S12 | |
-| S13 | |
-| S14 | |
+| S0 | passes (Firefox 152.0) — 2nd tab got a distinct ID `v-0.6400…` + `Value: 5` (vs. reference tab `v-0.9761…`/`Value: 4`); fresh `Created TabScope{v-0.6400…}` logged (signal C) |
+| S1 | passes (Firefox 152.0) — `location.reload()`: `window.name`, tab ID and `Value: 4` all preserved; the reload logged a transient `unload beacon`/`is now orphaned` but **no new `Created`** (reattached to the same scope, grace window held) |
+| S2a | passes (Firefox 152.0) — `page.goto(location.href)`: `window.name` + `Value: 4` preserved, no new `Created` |
+| S2b | passes (LibreWolf 149.0.2-2, hand-run) — address-bar Enter on `/`: tab ID `v-0.3074…` + `Value: 7` preserved; a transient `unload beacon`/`is now orphaned` for the same scope, **no new `Created`**. This is the row that *fails* on Safari; LibreWolf holds the name |
+| S3 | passes (LibreWolf 149.0.2-2, hand-run) — bookmark click on `/`: tab ID `v-0.3074…` + `Value: 7` preserved; transient orphan, no new `Created` |
+| S4 | passes (Firefox 152.0) — SideNav `/` → `/tab-scoped-route` → `/`: `window.name` + `Value: 4` preserved; the `@TabScoped` route's own `Value: 1` stable across the round-trip; no new `Created` |
+| S5 | passes (Firefox 152.0) — `document.location = location.href`: `window.name` + `Value: 4` preserved, no new `Created` |
+| S6 | passes (Firefox 152.0) — Back to `/` kept `Value: 4`, Forward kept the `@TabScoped` `Value: 1`; `window.name` preserved throughout, no new `Created` |
+| S7 | passes (Firefox 152.0) — hop to `https://example.com` then Back: `window.name` + `Value: 4` preserved, no new `Created` (Firefox restored the name on Back) |
+| S8 | passes (LibreWolf 149.0.2-2, hand-run) — right-click → Duplicate Tab: the duplicate got a fresh `window.name` `v-0.7395…` + `Value: 8` and its own `Created TabScope{…}`; source scope `v-0.3074…` stayed alive → two distinct scopes, no collision |
+| S9 | passes (Firefox 152.0) — `window.open('/tab-scoped-route')`: new tab got a fresh `window.name` `v-0.10201…` + its own `@TabScoped Value: 2` and its own `Created TabScope{…}` → distinct new scope, no mis-merge |
+| S10 | passes (LibreWolf 149.0.2-2, hand-run) — close tab + Ctrl-Shift-T: reopened tab got a **fresh** `window.name` `v-0.168…` + `Value: 9` and its own `Created` → new scope, as expected (reopen does not preserve `window.name`); old scope `v-0.7395…` orphans then reaps ~60 s after close |
+| S11 | measured, expected "undefined" (LibreWolf 149.0.2-2, hand-run) — "Open previous windows and tabs" + quit/relaunch: both restored tabs got **new** scopes (`v-0.8033…`/`Value: 11`, `v-0.6179…`/`Value: 10`), each within the 60 s grace (old scopes still alive) → session-restore does **not** preserve `window.name`; old scopes reap ~60 s later (spurious destroy). (`JSESSIONID` retained — the delete-cookies-on-close default was turned off, see header) |
+| S12 | measured, expected "undefined" (LibreWolf 149.0.2-2, hand-run) — real crash (agent SIGKILLed the main LibreWolf process, PID with no `--type=`) + relaunch: restored tabs got **new** scopes `v-0.8743…`/`Value: 12` and `v-0.1277…`/`Value: 13` → crash-restore does **not** preserve `window.name` either (same reset as S11). No crash-recovery prompt appeared — silent session restore (see header) |
+| S13 | passes (Firefox 152.0) — same-origin full-navigate away (`/tab-scoped-route`) then Back to `/`: `window.name` + `Value: 4` preserved, no new `Created` (bfcache restore) |
+| S14 | passes (Firefox 152.0) — `/preserve` `location.reload()`: `Value: 4` preserved, no reset, no `Created`/`Destroying` |
 
 ## Edge <!-- version --> — <!-- YYYY-MM-DD -->
 
