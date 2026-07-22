@@ -306,27 +306,33 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios).
 
-_Not yet run. The chapters below are a template — replace them with real results._
+_Chrome: automated (headless) partial pass on 2026-07-22, below. All other chapters are still
+templates awaiting a real run._
 
-## Chrome <!-- version --> — <!-- YYYY-MM-DD -->
+## Chrome (Chromium 150.0.7871.114, headless via Playwright MCP) — 2026-07-22
+
+> Automated pass only. Rows left blank were not exercised — S3/S8/S10–S12 are not scriptable (see
+> §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in §1, headless
+> Chrome preserves `window.name` across every scriptable navigation, so these confirm the happy
+> path but cannot surface a name drop.
 
 | Scenario | Outcome |
 |----------|---------|
-| S0 | |
-| S1 | |
-| S2 | |
+| S0 | passes — 2nd tab got a distinct ID `v-0.645…` + `Value: 4`; fresh `Created TabScope{…}` logged (signal C) |
+| S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 3` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
+| S2 | passes — automated approximation via `page.goto(sameUrl)`, `window.name` + `Value` preserved. NOT the real address-bar-Enter path (see §1 caveat); the Safari failure this row targets is unreachable from headless Chrome |
 | S3 | |
 | S4 | |
 | S5 | |
 | S6 | |
-| S7 | |
+| S7 | passes — hop to `https://example.com` then Back: `window.name` + `Value: 4` preserved (bfcache restore) |
 | S8 | |
 | S9 | |
 | S10 | |
 | S11 | |
 | S12 | |
 | S13 | |
-| S14 | |
+| S14 | passes — `/preserve` `location.reload()`: `Value: 4` preserved, no reset |
 
 ## Firefox <!-- version --> — <!-- YYYY-MM-DD -->
 
