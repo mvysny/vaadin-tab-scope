@@ -102,7 +102,7 @@ three signals per row with one `page.evaluate`:
    `reload`, `goBack`). So an automated pass confirms the *happy path* and that the harness/signals
    react, but it **cannot reproduce a name drop** — the whole point of S2b/S3. The Safari failure in
    particular is unreachable from headless Chrome and must be hand-run in real Safari (see the
-   Safari modifier in §4).
+   Safari modifier in §3).
 2. **The programmatic reload (S2a) is a different code path from the human address-bar Enter
    (S2b).** That is exactly why S2 is split: `page.goto(location.href)` (S2a) always preserves the
    name in Chromium and is what automation can reach; a real address-bar Enter (S2b) is what trips
@@ -163,118 +163,100 @@ signals B (`Value`) and C (server log) instead.
 
 ---
 
-## 3. Scenarios
+## 3. Scenarios and steps
 
-The scenarios under test and their **expected** (correct) behavior. Outcomes are not recorded here —
-they go under [Last Testing Outcome](#last-testing-outcome), one chapter per browser. "Expected =
-new scope" rows are not bugs; the point there is to confirm it's a genuine new tab. Read a row as
-**preserved** when the `Value` is unchanged and no new `Created` appears; **dropped** when the
-`Value` jumps, a `Created TabScope{...}` fires at once, and a `Destroying TabScope{...}` follows
-~60 s later.
+The scenarios under test, each with its **expected** (correct) behavior and the exact steps to run
+it. Outcomes are not recorded here — they go under [Last Testing Outcome](#last-testing-outcome),
+one chapter per browser. Read an outcome as **preserved** when the `Value` is unchanged and no new
+`Created` appears; **dropped** when the `Value` jumps, a `Created TabScope{...}` fires at once, and
+a `Destroying TabScope{...}` follows ~60 s later. "Expected = new scope" entries are not bugs — the
+point there is to confirm it's a genuine new tab.
 
-| ID | Scenario | Expected |
-|----|----------|----------|
-| S0 | Control: open `/` in a 2nd tab | new scope (distinct name + value) |
-| S1 | Plain reload (F5 / Cmd-R) | preserved |
-| S2a | Programmatic same-URL reload — `page.goto(location.href)` (**automation only**) | preserved on all browsers |
-| S2b | Reload via address-bar Enter — focus URL, press Enter (**human only**) | preserved on all browsers **except Safari**, which drops it — see note |
-| S3 | Reload via bookmark click (**human only**) | preserved on all browsers **except Safari**, which drops it — see note |
-| S4 | In-app link click (SideNav → another view) then back | preserved |
-| S5 | `document.location = location.href` from console | preserved |
-| S6 | Back / Forward navigation (same origin) | preserved |
-| S7 | Cross-origin hop out then Back to app | preserved |
-| S8 | Duplicate Tab (browser tab-context menu) | new scope |
-| S9 | Open link `target=_blank` | new scope |
-| S10 | Reopen-closed-tab (Cmd/Ctrl-Shift-T) | new scope |
-| S11 | Restore-after-quit (reopen windows on relaunch) | undefined — measure |
-| S12 | Restore-after-crash | undefined — measure |
-| S13 | bfcache restore (Back into a page left via link) | preserved |
-| S14 | `@PreserveOnRefresh` route F5 (`/preserve`) | preserved, no reset |
+Each entry leads with its expected verdict. The harness must be running and you start on
+`http://localhost:8080/`; **before each scenario** note the current `Value` (signal B) and the
+`Browser tab ID` (signal A), run the action, then compare and glance at the server console
+(signal C).
+
+- **S0 — Control (proves the harness reacts).** *Expected: new scope — distinct tab ID + `Value`.*
+  With `/` open, open a second browser tab and go to `http://localhost:8080/`; a fresh
+  `Created TabScope{...}` should appear in the log. This confirms distinct tabs really get distinct
+  scopes; every "preserved" entry below is meaningful only relative to this.
+
+- **S1 — Plain reload.** *Expected: preserved.* Press **F5** (Windows/Linux) or **Cmd-R** (macOS).
+  Same `Value`, same tab ID, **no** new `Created`.
+
+- **S2a — Programmatic same-URL reload (automation only).** *Expected: preserved on every browser.*
+  From a driver, run `page.goto(location.href)` (or navigate the tab to the same URL). This is the
+  happy path a headless pass can reach; it does *not* reproduce the Safari drop (that's S2b). A
+  human running the matrix by hand skips S2a and does S2b instead.
+
+- **S2b — Address-bar reload (human only).** *Expected: preserved — except Safari, which drops it
+  (see the S2b/S3 note below).* Click into the address bar (or Cmd/Ctrl-L), leave the URL
+  unchanged, press **Enter**. *This is the known Safari failure path* — Safari 18.3.1 with Web
+  Inspector **closed** drops `window.name` here (new `Value` + new `Created`); record that as
+  `fails`. No automation can perform this — it is the real keyboard action in browser chrome.
+
+- **S3 — Bookmark reload (human only).** *Expected: preserved — except Safari, which drops it (see
+  the S2b/S3 note below).* Bookmark `http://localhost:8080/` once. Then, in the same tab, click the
+  bookmark. Same failure as S2b.
+
+- **S4 — In-app navigation.** *Expected: preserved.* Click a SideNav entry (e.g. "Tab Scoped
+  View"), then click back to "Main View" (or use browser Back). Router navigation stays within one
+  document. Cross-check on `/tab-scoped-route` that the `@TabScoped` instance's `Value` is stable
+  too.
+
+- **S5 — JS-driven navigation.** *Expected: preserved.* Open DevTools console and run
+  `document.location = location.href`. (On Safari, note this is *with* Web Inspector open — see the
+  modifier below.)
+
+- **S6 — Back/Forward.** *Expected: preserved.* Navigate `/` → `/tab-scoped-route` via the SideNav,
+  then use the browser's **Back** then **Forward** buttons. The `/` `Value` should be unchanged on
+  return.
+
+- **S7 — Cross-origin hop.** *Expected: preserved on Back.* In the same tab, type
+  `https://example.com` in the address bar and go; then press **Back** to return to the app.
+  Browsers clear `window.name` on cross-origin navigation for security and may or may not restore it
+  on Back — this row measures that. A new scope here is a real finding.
+
+- **S8 — Duplicate Tab.** *Expected: new scope.* Right-click the tab → **Duplicate**
+  (Chrome/Edge/Safari) or middle-tools equivalent. The duplicate typically *copies* `window.name`,
+  so both tabs may momentarily claim the same ID. Record what the duplicate shows: same ID/`Value`
+  (name copied) vs. new.
+
+- **S9 — `target=_blank`.** *Expected: new scope.* From the console run
+  `window.open('http://localhost:8080/tab-scoped-route')` (or any link opening a new tab). The new
+  tab should get a **fresh** `window.name` → new scope. Confirms new tabs aren't mis-merged.
+
+- **S10 — Reopen closed tab.** *Expected: new scope.* Close the tab, then **Cmd/Ctrl-Shift-T**. Per
+  INTERNALS, reopening does **not** preserve `window.name`; expect a new scope, and (~60 s after the
+  original close) a `Destroying` for the old name.
+
+- **S11 — Restore-after-quit.** *Expected: undefined — measure.* Configure the browser to reopen
+  windows/tabs on launch (Chrome: "Continue where you left off"; Safari: reopen all windows). Fully
+  **quit** and relaunch the browser. Record whether the restored tab keeps its ID/`Value`.
+
+- **S12 — Restore-after-crash.** *Expected: undefined — measure.* Force-kill the browser process (so
+  the crash-restore prompt appears), relaunch, choose **Restore**. Record ID/`Value`.
+
+- **S13 — bfcache restore.** *Expected: preserved.* Navigate away via a same-tab link to another
+  same-origin page, then press **Back** so the page is restored from the back/forward cache (no full
+  reload). A reset here means bfcache restore re-runs bootstrap with a lost name.
+
+- **S14 — `@PreserveOnRefresh` F5.** *Expected: preserved, no reset.* Open `/preserve`, note
+  `Value`, press **F5**. The same `Value` should show (the DOM is preserved and the scope survives).
+  Isolates the preserve path from the plain-route path in S1.
 
 > **S2b / S3 and Safari.** These two human-only rows are expected to **pass on Chrome, Firefox and
 > Edge** (`window.name` preserved) and to **fail on Safari** — Safari 18.3.1 with Web Inspector
 > *closed* was observed to drop `window.name` on an address-bar/bookmark reload. That drop is a
 > genuine failure of the tab-identity guarantee (a spurious destroy follows ~60 s later), so **on
 > Safari record S2b/S3 as `fails`** with the note "expected — this is how Safari works". It is not a
-> bug in this library and there is no server-side fix (see §6); recording it as a failure — rather
+> bug in this library and there is no server-side fix (see §5); recording it as a failure — rather
 > than quietly excusing it — is what keeps Safari's column in the outcome tables honest.
 >
 > **S2a** is the automation-only counterpart: the *programmatic* same-URL reload
 > (`page.goto(location.href)`). It preserves `window.name` on every browser including Safari, so it
 > is expected to **pass everywhere** and does not surface the Safari drop — that is what S2b is for.
-
----
-
-## 4. Exact steps per scenario
-
-Each step assumes the harness is running and you start on `http://localhost:8080/`. **Before each
-scenario** note the current `Value` (signal B) and the `Browser tab ID` (signal A); after the
-action, compare, and glance at the server console (signal C).
-
-- **S0 — Control (proves the harness reacts).** With `/` open, open a second browser tab and go to
-  `http://localhost:8080/`. Expect a **different** `Browser tab ID` and a **different** `Value`, and
-  a fresh `Created TabScope{...}` in the log. This confirms distinct tabs really get distinct
-  scopes; every "preserved" row below is meaningful only relative to this.
-
-- **S1 — Plain reload.** Press **F5** (Windows/Linux) or **Cmd-R** (macOS). Expect same `Value`,
-  same tab ID, **no** new `Created`.
-
-- **S2a — Programmatic same-URL reload (automation only).** From a driver, run
-  `page.goto(location.href)` (or navigate the tab to the same URL). Expect **preserved on every
-  browser** — this is the happy path a headless pass can reach; it does *not* reproduce the Safari
-  drop (that's S2b). A human running the matrix by hand skips S2a and does S2b instead.
-
-- **S2b — Address-bar reload (human only).** Click into the address bar (or Cmd/Ctrl-L), leave the
-  URL unchanged, press **Enter**. On Chrome/Firefox/Edge expect **preserved**. *This is the known
-  Safari failure path* — Safari 18.3.1 with Web Inspector **closed** drops `window.name` here (new
-  `Value` + new `Created`); record that as `fails` per the S2b/S3 note in §3. No automation can
-  perform this — it is the real keyboard action in browser chrome.
-
-- **S3 — Bookmark reload (human only).** Bookmark `http://localhost:8080/` once. Then, in the same
-  tab, click the bookmark. Same expectation as S2b: preserved everywhere except Safari, where it
-  fails as documented.
-
-- **S4 — In-app navigation.** Click a SideNav entry (e.g. "Tab Scoped View"), then click back to
-  "Main View" (or use browser Back). Router navigation stays within one document; expect preserved.
-  Cross-check on `/tab-scoped-route` that the `@TabScoped` instance's `Value` is stable too.
-
-- **S5 — JS-driven navigation.** Open DevTools console and run `document.location = location.href`.
-  Expect preserved. (On Safari, note this is *with* Web Inspector open — see the modifier below.)
-
-- **S6 — Back/Forward.** Navigate `/` → `/tab-scoped-route` via the SideNav, then use the browser's
-  **Back** then **Forward** buttons. Expect the `/` `Value` unchanged on return.
-
-- **S7 — Cross-origin hop.** In the same tab, type `https://example.com` in the address bar and go;
-  then press **Back** to return to the app. Browsers clear `window.name` on cross-origin navigation
-  for security and may or may not restore it on Back — this row measures that. Expect preserved on
-  Back; a new scope here is a real finding.
-
-- **S8 — Duplicate Tab.** Right-click the tab → **Duplicate** (Chrome/Edge/Safari) or middle-tools
-  equivalent. The duplicate typically *copies* `window.name`, so both tabs may momentarily claim the
-  same ID. Record what the duplicate shows: same ID/`Value` (name copied) vs. new.
-
-- **S9 — `target=_blank`.** From the console run
-  `window.open('http://localhost:8080/tab-scoped-route')` (or any link opening a new tab). The new
-  tab should get a **fresh** `window.name` → new scope. Confirms new tabs aren't mis-merged.
-
-- **S10 — Reopen closed tab.** Close the tab, then **Cmd/Ctrl-Shift-T**. Per INTERNALS, reopening
-  does **not** preserve `window.name` → expect a new scope, and (~60 s after the original close)
-  a `Destroying` for the old name.
-
-- **S11 — Restore-after-quit.** Configure the browser to reopen windows/tabs on launch (Chrome:
-  "Continue where you left off"; Safari: reopen all windows). Fully **quit** and relaunch the
-  browser. Record whether the restored tab keeps its ID/`Value`.
-
-- **S12 — Restore-after-crash.** Force-kill the browser process (so the crash-restore prompt
-  appears), relaunch, choose **Restore**. Record ID/`Value`.
-
-- **S13 — bfcache restore.** Navigate away via a same-tab link to another same-origin page, then
-  press **Back** so the page is restored from the back/forward cache (no full reload). Expect
-  preserved; a reset here means bfcache restore re-runs bootstrap with a lost name.
-
-- **S14 — `@PreserveOnRefresh` F5.** Open `/preserve`, note `Value`, press **F5**. Expect the same
-  `Value` (the DOM is preserved and the scope survives). This isolates the preserve path from the
-  plain-route path in S1.
 
 ### Safari-specific: Web Inspector modifier
 
@@ -285,7 +267,7 @@ the Inspector is open but drop it (S2b/S3) when closed — so testing only with 
 
 ---
 
-## 5. Interpreting a failure
+## 4. Interpreting a failure
 
 When a "preserved"-expected row shows ⚠️:
 - **Signal A** (`Browser tab ID`) changes → the browser handed the server a different `window.name`.
@@ -297,7 +279,7 @@ When a "preserved"-expected row shows ⚠️:
 
 ---
 
-## 6. Mitigation notes (record findings)
+## 5. Mitigation notes (record findings)
 
 - **No server-side fix.** The server only sees the `window.name` the browser sends; if the browser
   drops it, the two navigations are indistinguishable from close-then-new-tab. State this explicitly
@@ -318,7 +300,7 @@ When a "preserved"-expected row shows ⚠️:
 > (Safari gets two: Web Inspector closed and open). Record the **exact browser name + version** and
 > the **test date**, then a two-column table: **Scenario ID** and **Outcome** — `passes` or `fails`;
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
-> destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios).
+> destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
 _Chrome: automated (headless) partial pass on 2026-07-22, below. All other chapters are still
 templates awaiting a real run._
