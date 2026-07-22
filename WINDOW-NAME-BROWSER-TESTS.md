@@ -170,6 +170,15 @@ the driver's own channel, the same reason the Chrome chapter co-launches a plain
 automation caveats (scripted navigations preserve `window.name`; S2b/S3 stay human-only) to hold the
 same as Chrome, but confirm when the chapter is actually run.
 
+### Driving Safari (B4)
+
+Safari runs only on macOS, so on a Linux/CI harness box the agent **drives nothing** — there is no
+Playwright channel for Safari and no remote-drive. **All 17 rows are hand-run by the human** on the
+Mac; the agent's role is exactly the plain-second-browser role from the Chrome chapter, applied to
+the *whole* matrix — the human reports signals A (drawer tab ID) and B (`Value`), the agent owns
+signal C (the server log) and renders every verdict. Disable "Preload Top Hit in the background"
+first (see the Safari modifier in §3) so the log isn't cluttered with phantom preview scopes.
+
 ### Browsers to cover (issue #2)
 
 | # | Browser | Platform | How to reach it |
@@ -329,6 +338,16 @@ For **every** Safari row (B4), run it **twice**: once with **Web Inspector close
 **open** (Develop → Show Web Inspector). Safari 18.3.1 was observed to preserve `window.name` when
 the Inspector is open but drop it (S2b/S3) when closed — so testing only with DevTools open would
 *hide* the very bug. Record both in the "closed / open" cell.
+
+### Safari-specific: disable address-bar preview preload first
+
+Safari's **"Preload Top Hit in the background"** (Settings → Search; on by default) pre-renders the
+page *before* you press Enter, in a hidden webview with its own blank `window.name`. Against this
+harness that spawns a **phantom `TabScope`** on every address-bar navigation — a fresh random name
+that immediately orphans and is `Destroying`-reaped ~60 s later. It clutters signal C and is easily
+mistaken for a real S2b/S3 drop (the tell: its name matches *neither* the old nor the new tab).
+**Uncheck it before running the matrix.** The pre-render never touches the real tab's `window.name`,
+so disabling it changes no row's verdict — it only removes noise.
 
 ---
 
