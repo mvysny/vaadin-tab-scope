@@ -386,9 +386,11 @@ When a "preserved"-expected row shows ⚠️:
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
 
-_Chrome (Chromium 150) and Firefox/LibreWolf: both complete passes of all 17 scenarios on
-2026-07-22, below — each a two-browser-in-one-agent-session run (see the chapters). Edge and the
-Safari chapters are still templates awaiting a real run._
+_Chrome (Chromium 150), Firefox/LibreWolf, and Safari 26.5.2 (Web Inspector closed): complete passes
+of all 17 scenarios on 2026-07-22, below. The Chrome and Firefox chapters were two-browser-in-one-
+agent-session runs; the Safari chapter was fully hand-run on a Mac with the agent owning the server
+log (see "Driving Safari (B4)"). The Safari Web-Inspector-**open** chapter, Edge, and iOS Safari are
+still templates awaiting a real run._
 
 ## Chrome (Chromium 150) — 2026-07-22
 
@@ -505,26 +507,48 @@ Safari chapters are still templates awaiting a real run._
 | S13 | |
 | S14 | |
 
-## Safari (Web Inspector closed) <!-- version --> — <!-- YYYY-MM-DD -->
+## Safari 26.5.2 / macOS Tahoe 26.5.2 (Web Inspector closed) — 2026-07-22
+
+> **Complete pass — all 17 rows hand-run on the Mac; none surfaced a bug.** **Headline: the
+> documented Safari 18.3.1 `window.name` drop on S2b/S3 (address-bar and bookmark reload) is NOT
+> reproducible on Safari 26.5.2** — the name is preserved, exactly like Chrome and Firefox. The drop
+> appears **fixed since 18.3.1**, and the Web-Inspector-*closed* case tested here is precisely the one
+> that failed on 18.3.1, so this is the meaningful result.
+>
+> Safari can't be agent-driven on a Linux harness (no Playwright channel, no remote-drive), so **every
+> row was hand-run**: the human reported signals A (drawer tab ID) + B (`Value`), the agent owned
+> signal C (the server log) and rendered each verdict. See §1 "Driving Safari (B4)".
+>
+> **Env + gotcha:** Safari's **"Preload Top Hit in the background" was disabled first** — with it on,
+> every address-bar navigation spawns a phantom `TabScope` (fresh name → orphan → reap ~60 s) that
+> clutters signal C and is easily mistaken for a real S2b/S3 drop (see §3 Safari modifier). **S5 and
+> S9** (JS actions) were run via `javascript:` bookmarklets so Web Inspector stayed genuinely closed.
+> Reference tab for the preserve rows: `v-0.9717…` / `Value 7`; the shared counter advances per scope,
+> so each new scope shows the next `Value`.
+>
+> **S11/S12 ("measure" rows):** both restored tabs got a **new** `window.name` (new scope) —
+> `window.name` is not preserved across quit- or crash-restore, same as Chrome/FF. On the S12 crash
+> relaunch **no crash-recovery prompt** appeared; Safari silently restored the session (like
+> Firefox/LibreWolf).
 
 | Scenario | Outcome |
 |----------|---------|
-| S0 | |
-| S1 | |
-| S2a | |
-| S2b | |
-| S3 | |
-| S4 | |
-| S5 | |
-| S6 | |
-| S7 | |
-| S8 | |
-| S9 | |
-| S10 | |
-| S11 | |
-| S12 | |
-| S13 | |
-| S14 | |
+| S0 | passes — clean 2nd tab got a distinct `window.name` + its own `Created`, distinct from the reference `v-0.3821…` → distinct tabs get distinct scopes. (Also surfaced the Safari address-bar **preview-preload** phantom-scope behavior — disabled for the rest of the run; see header) |
+| S1 | passes — Cmd-R: `window.name`, tab ID and `Value` preserved; transient `unload beacon`/`is now orphaned` but no new `Created` (reattached to the same scope, grace window held) |
+| S2a | n/a — programmatic `page.goto` is automation-only; a hand run does S2b instead |
+| S2b | **passes (preserved) — the row that fails on Safari 18.3.1.** Address-bar Enter on `v-0.9717…`: stayed `0.9717 / Value 7`, transient beacon+orphan then reattach, **no new `Created`**. Safari 26.5.2 does **not** drop `window.name` here |
+| S3 | **passes (preserved)** — bookmark click on `v-0.9717…`: stayed `0.9717 / 7`, transient orphan, **no new `Created`**. The 18.3.1 bookmark drop is also gone on 26.5.2 |
+| S4 | passes — SideNav `/` → `/tab-scoped-route` → `/`: `0.9717 / 7` preserved with **zero** log activity (single-document router nav — no beacon, no `Created`); the `@TabScoped` route's own `Value` stable across the round-trip |
+| S5 | passes — JS nav via a `javascript:document.location=location.href` bookmarklet with Inspector **closed**: page reloaded, `0.9717 / 7` preserved, transient orphan, no new `Created` |
+| S6 | passes — SideNav to `/tab-scoped-route`, browser Back then Forward: `/` stayed `0.9717 / 7`, zero log activity (in-document history nav) |
+| S7 | passes — hop to `https://vaadin.com` then Back: `0.9717 / 7` preserved (bfcache restore), one beacon/orphan on leaving, no new `Created` — Safari restores `window.name` on Back |
+| S8 | passes — right-click tab → **Duplicate Tab**: duplicate got a fresh `window.name` `v-0.6774…` / `Value 9` + its own `Created`; source stayed `0.9717 / 7` → two distinct scopes, no collision |
+| S9 | passes — `window.open(location.origin+'/tab-scoped-route')` bookmarklet: new tab got a fresh `window.name` `v-0.2710…` + its own `Created` (its `Value 2` is the `@TabScoped` route's own counter); source untouched → distinct new scope |
+| S10 | passes (new scope, expected) — close `/tab-scoped-route` tab (`v-0.2710…`) + Cmd-Shift-T: reopened tab got a **fresh** `window.name` `v-0.9804…` + its own `Created`; old scope orphaned then reaped → reopen does not preserve `window.name` |
+| S11 | measured, expected "undefined" — "Safari opens with: All windows from last session" + Cmd-Q/relaunch: restored tab got a **different** `window.name` `v-0.9282…` / `Value 14` (baseline `v-0.2529…`/12) → new scope; old scopes reaped ~60 s later. `window.name` not preserved across quit-restore (same as Chrome/FF) |
+| S12 | measured, expected "undefined" — force-quit (Cmd-Opt-Esc → Force Quit) + relaunch: restored tab got a **different** `window.name` `v-0.3265…` / `Value 15` (pre-crash `v-0.9282…`/14) → new scope. **No crash-recovery prompt** — Safari silently restored the session (like Firefox/LibreWolf). Crash-restore does not preserve `window.name` |
+| S13 | passes — full-navigate away to `/tab-scoped-route` then browser Back to `/`: `0.9717 / 7` preserved (bfcache), transient beacon/orphan pairs on leave and return, no new `Created` |
+| S14 | passes — `/preserve` Cmd-R: `Value 9` preserved; the beacon hook started the grace clock **without closing** the `@PreserveOnRefresh` UI, which reattached → no `Created`/`Destroying` |
 
 ## Safari (Web Inspector open) <!-- version --> — <!-- YYYY-MM-DD -->
 
