@@ -172,7 +172,9 @@ discussion in [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141).
 The *consequence* — a reload with a changed `window.name` producing a fresh scope — is now tested
 browserlessly in `TabIdentityTest` via `MockBrowser.reload(newWindowName)`. What still needs a real
 browser is confirming *which* browsers/actions actually fail to preserve `window.name` (the Safari
-rows above); Karibu can only simulate the changed-name outcome, not measure a given browser.
+rows above); Karibu can only simulate the changed-name outcome, not measure a given browser. The
+manual cross-browser sweep that measures it — scenarios, exact steps, and the latest recorded
+outcomes — lives in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md) ([issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2)).
 
 ## Cleanup
 

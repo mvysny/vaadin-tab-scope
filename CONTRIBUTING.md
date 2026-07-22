@@ -23,6 +23,8 @@ Run the demo and exercise tab scoping across reloads and multiple tabs:
 5. Unzip `testapp/build/distributions/testapp.zip`, run `bin/testapp`, and confirm the app comes up on port 8080.
 6. Optionally test the Docker image: `docker build -t test/vaadin-tab-scope:latest . && docker run --rm -ti -p8080:8080 test/vaadin-tab-scope`.
 
+For the full cross-browser `window.name`-preservation sweep (the correctness foundation of tab identity — [issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2)), follow the matrix and record results in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md).
+
 # Releasing
 
 Only the `tab-scope` module is published to Maven Central (the `testapp` demo is not). The version lives in the root `build.gradle.kts` under the `allprojects { version = ... }` stanza.
