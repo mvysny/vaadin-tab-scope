@@ -80,7 +80,7 @@ three signals per row with one `page.evaluate`:
 |-----|-----------------|-------|
 | S0  | open a 2nd tab, navigate it to `/` | expect a distinct `windowName` + `Value` |
 | S1  | `location.reload()` | true F5 |
-| S2  | `page.goto(sameUrl)` | **approximation only** — see the caveat below |
+| S2a | `page.goto(location.href)` | programmatic same-URL reload — **the only half of S2 that automates** |
 | S4  | click a SideNav link, then click back | |
 | S5  | `document.location = location.href` | |
 | S6  | `page.goBack()` / `page.goForward()` | |
@@ -91,20 +91,22 @@ three signals per row with one `page.evaluate`:
 
 **Strictly manual — no Playwright hook, hand-run these in a real browser:**
 
-- **S3** (bookmark click), **S8** (Duplicate Tab), **S10** (reopen-closed-tab, Cmd/Ctrl-Shift-T),
-  **S11** (restore-after-quit), **S12** (restore-after-crash) — these are browser-chrome / session
-  actions with no page-scriptable equivalent.
+- **S2b** (real address-bar Enter), **S3** (bookmark click), **S8** (Duplicate Tab),
+  **S10** (reopen-closed-tab, Cmd/Ctrl-Shift-T), **S11** (restore-after-quit),
+  **S12** (restore-after-crash) — these are browser-chrome / session actions with no page-scriptable
+  equivalent.
 
 **Two caveats that make automation a smoke test, not a substitute:**
 
 1. **Headless Chrome preserves `window.name` across every scriptable navigation** (`goto`,
    `reload`, `goBack`). So an automated pass confirms the *happy path* and that the harness/signals
-   react, but it **cannot reproduce a name drop** — the whole point of S2/S3. The Safari failure in
+   react, but it **cannot reproduce a name drop** — the whole point of S2b/S3. The Safari failure in
    particular is unreachable from headless Chrome and must be hand-run in real Safari (see the
    Safari modifier in §4).
-2. **`page.goto(sameUrl)` is not the S2 code path.** A real address-bar Enter is what trips Safari;
-   `goto` is closer to a programmatic reload and always preserves the name in Chromium. Treat S2/S3
-   as "manual on Safari, informational-only when automated."
+2. **The programmatic reload (S2a) is a different code path from the human address-bar Enter
+   (S2b).** That is exactly why S2 is split: `page.goto(location.href)` (S2a) always preserves the
+   name in Chromium and is what automation can reach; a real address-bar Enter (S2b) is what trips
+   Safari and only a human can perform it. An automated S2a pass says nothing about S2b.
 
 ### Browsers to cover (issue #2)
 
@@ -174,8 +176,9 @@ new scope" rows are not bugs; the point there is to confirm it's a genuine new t
 |----|----------|----------|
 | S0 | Control: open `/` in a 2nd tab | new scope (distinct name + value) |
 | S1 | Plain reload (F5 / Cmd-R) | preserved |
-| S2 | Reload via address-bar Enter (focus URL, press Enter) | preserved on all browsers **except Safari**, which drops it — see note |
-| S3 | Reload via bookmark click | preserved on all browsers **except Safari**, which drops it — see note |
+| S2a | Programmatic same-URL reload — `page.goto(location.href)` (**automation only**) | preserved on all browsers |
+| S2b | Reload via address-bar Enter — focus URL, press Enter (**human only**) | preserved on all browsers **except Safari**, which drops it — see note |
+| S3 | Reload via bookmark click (**human only**) | preserved on all browsers **except Safari**, which drops it — see note |
 | S4 | In-app link click (SideNav → another view) then back | preserved |
 | S5 | `document.location = location.href` from console | preserved |
 | S6 | Back / Forward navigation (same origin) | preserved |
@@ -188,13 +191,17 @@ new scope" rows are not bugs; the point there is to confirm it's a genuine new t
 | S13 | bfcache restore (Back into a page left via link) | preserved |
 | S14 | `@PreserveOnRefresh` route F5 (`/preserve`) | preserved, no reset |
 
-> **S2 / S3 and Safari.** These two rows are expected to **pass on Chrome, Firefox and Edge**
-> (`window.name` preserved) and to **fail on Safari** — Safari 18.3.1 with Web Inspector *closed*
-> was observed to drop `window.name` on an address-bar/bookmark reload. That drop is a genuine
-> failure of the tab-identity guarantee (a spurious destroy follows ~60 s later), so **on Safari
-> record S2/S3 as `fails`** with the note "expected — this is how Safari works". It is not a bug in
-> this library and there is no server-side fix (see §6); recording it as a failure — rather than
-> quietly excusing it — is what keeps Safari's column in the outcome tables honest.
+> **S2b / S3 and Safari.** These two human-only rows are expected to **pass on Chrome, Firefox and
+> Edge** (`window.name` preserved) and to **fail on Safari** — Safari 18.3.1 with Web Inspector
+> *closed* was observed to drop `window.name` on an address-bar/bookmark reload. That drop is a
+> genuine failure of the tab-identity guarantee (a spurious destroy follows ~60 s later), so **on
+> Safari record S2b/S3 as `fails`** with the note "expected — this is how Safari works". It is not a
+> bug in this library and there is no server-side fix (see §6); recording it as a failure — rather
+> than quietly excusing it — is what keeps Safari's column in the outcome tables honest.
+>
+> **S2a** is the automation-only counterpart: the *programmatic* same-URL reload
+> (`page.goto(location.href)`). It preserves `window.name` on every browser including Safari, so it
+> is expected to **pass everywhere** and does not surface the Safari drop — that is what S2b is for.
 
 ---
 
@@ -212,13 +219,20 @@ action, compare, and glance at the server console (signal C).
 - **S1 — Plain reload.** Press **F5** (Windows/Linux) or **Cmd-R** (macOS). Expect same `Value`,
   same tab ID, **no** new `Created`.
 
-- **S2 — Address-bar reload.** Click into the address bar (or Cmd/Ctrl-L), leave the URL unchanged,
-  press **Enter**. On Chrome/Firefox/Edge expect **preserved**. *This is the known Safari failure
-  path* — Safari 18.3.1 with Web Inspector **closed** drops `window.name` here (new `Value` + new
-  `Created`); record that as `fails` per the S2/S3 note in §3.
+- **S2a — Programmatic same-URL reload (automation only).** From a driver, run
+  `page.goto(location.href)` (or navigate the tab to the same URL). Expect **preserved on every
+  browser** — this is the happy path a headless pass can reach; it does *not* reproduce the Safari
+  drop (that's S2b). A human running the matrix by hand skips S2a and does S2b instead.
 
-- **S3 — Bookmark reload.** Bookmark `http://localhost:8080/` once. Then, in the same tab, click the
-  bookmark. Same expectation as S2: preserved everywhere except Safari, where it fails as documented.
+- **S2b — Address-bar reload (human only).** Click into the address bar (or Cmd/Ctrl-L), leave the
+  URL unchanged, press **Enter**. On Chrome/Firefox/Edge expect **preserved**. *This is the known
+  Safari failure path* — Safari 18.3.1 with Web Inspector **closed** drops `window.name` here (new
+  `Value` + new `Created`); record that as `fails` per the S2b/S3 note in §3. No automation can
+  perform this — it is the real keyboard action in browser chrome.
+
+- **S3 — Bookmark reload (human only).** Bookmark `http://localhost:8080/` once. Then, in the same
+  tab, click the bookmark. Same expectation as S2b: preserved everywhere except Safari, where it
+  fails as documented.
 
 - **S4 — In-app navigation.** Click a SideNav entry (e.g. "Tab Scoped View"), then click back to
   "Main View" (or use browser Back). Router navigation stays within one document; expect preserved.
@@ -266,7 +280,7 @@ action, compare, and glance at the server console (signal C).
 
 For **every** Safari row (B4), run it **twice**: once with **Web Inspector closed**, once with it
 **open** (Develop → Show Web Inspector). Safari 18.3.1 was observed to preserve `window.name` when
-the Inspector is open but drop it (S2/S3) when closed — so testing only with DevTools open would
+the Inspector is open but drop it (S2b/S3) when closed — so testing only with DevTools open would
 *hide* the very bug. Record both in the "closed / open" cell.
 
 ---
@@ -291,7 +305,7 @@ When a "preserved"-expected row shows ⚠️:
 - **Possible client-side probe (to evaluate, not yet built):** mirror `window.name` into
   `sessionStorage` (which *is* tab-scoped and survives reload) and, on bootstrap, if `window.name`
   is empty but `sessionStorage` holds a prior name, restore it before Vaadin reads it. This could
-  recover S2/S3 losses. Note whether `sessionStorage` itself survives each failing scenario (it does
+  recover S2b/S3 losses. Note whether `sessionStorage` itself survives each failing scenario (it does
   **not** survive S9/S10/new-tab, which is correct). If evaluated, capture the result here.
 - Otherwise record **"no known mitigation — inherent limitation"** for the confirmed rows, as the
   issue permits.
@@ -311,16 +325,17 @@ templates awaiting a real run._
 
 ## Chrome (Chromium 150.0.7871.114, headless via Playwright MCP) — 2026-07-22
 
-> Automated pass only. Rows left blank were not exercised — S3/S8/S10–S12 are not scriptable (see
-> §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in §1, headless
-> Chrome preserves `window.name` across every scriptable navigation, so these confirm the happy
-> path but cannot surface a name drop.
+> Automated pass only. Rows left blank were not exercised — S2b/S3/S8/S10–S12 are not scriptable
+> (see §1 "Automating a pass"); S4/S5/S6/S9/S13 simply weren't run this time. As noted in §1,
+> headless Chrome preserves `window.name` across every scriptable navigation, so these confirm the
+> happy path but cannot surface a name drop.
 
 | Scenario | Outcome |
 |----------|---------|
 | S0 | passes — 2nd tab got a distinct ID `v-0.645…` + `Value: 4`; fresh `Created TabScope{…}` logged (signal C) |
 | S1 | passes — `location.reload()`: `window.name`, tab ID and `Value: 3` all preserved; the transient `is now orphaned` log appeared but no `Destroying` (reload-race, grace window held) |
-| S2 | passes — automated approximation via `page.goto(sameUrl)`, `window.name` + `Value` preserved. NOT the real address-bar-Enter path (see §1 caveat); the Safari failure this row targets is unreachable from headless Chrome |
+| S2a | passes — `page.goto(location.href)`: `window.name` + `Value` preserved |
+| S2b | — human only, not run (real address-bar Enter; unreachable from headless Chrome) |
 | S3 | |
 | S4 | |
 | S5 | |
@@ -340,7 +355,8 @@ templates awaiting a real run._
 |----------|---------|
 | S0 | |
 | S1 | |
-| S2 | |
+| S2a | |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
@@ -360,7 +376,8 @@ templates awaiting a real run._
 |----------|---------|
 | S0 | |
 | S1 | |
-| S2 | |
+| S2a | |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
@@ -380,7 +397,8 @@ templates awaiting a real run._
 |----------|---------|
 | S0 | |
 | S1 | |
-| S2 | |
+| S2a | |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
@@ -400,7 +418,8 @@ templates awaiting a real run._
 |----------|---------|
 | S0 | |
 | S1 | |
-| S2 | |
+| S2a | |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
@@ -420,7 +439,8 @@ templates awaiting a real run._
 |----------|---------|
 | S0 | |
 | S1 | |
-| S2 | |
+| S2a | |
+| S2b | |
 | S3 | |
 | S4 | |
 | S5 | |
