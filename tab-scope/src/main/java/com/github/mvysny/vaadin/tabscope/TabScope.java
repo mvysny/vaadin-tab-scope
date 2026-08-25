@@ -152,9 +152,10 @@ public final class TabScope implements Serializable {
          * Unhooks a detached {@code ui} from this scope. A no-op once the scope is closed — the
          * scope may be reaped while a closed UI still awaits its detach.
          *
-         * @throws IllegalStateException if {@code ui} was already unhooked. Reachable today only via
-         *                               <a href="https://github.com/mvysny/vaadin-tab-scope/issues/6">issue #6</a>
-         *                               (a client-requested resync fires the detach listener on a live UI).
+         * @throws IllegalStateException if {@code ui} was already unhooked — only reachable by one
+         *                               narrow race, a resync landing between {@code ui.close()} and
+         *                               the detach that follows it (see INTERNALS.md, "A detach event
+         *                               is not always a detach").
          */
         public void remove(@NotNull UI ui) {
             if (closed) {
@@ -414,7 +415,16 @@ public final class TabScope implements Serializable {
             // On tab close the beacon detaches the UI, starting the orphan grace period; a
             // reopened tab arrives with a fresh window.name, so nothing needs reconnecting.
             // See INTERNALS.md ("Tab close needs no special handling").
-            ui.addDetachListener(e -> removeUI(finalTabScope, ui));
+            //
+            // A detach event is not proof of a detach: a client-requested resync re-fires detach
+            // (and attach) across the whole state tree of a UI that stays attached. Only a UI that
+            // Vaadin has closed is really going away — see INTERNALS.md ("A detach event is not
+            // always a detach").
+            ui.addDetachListener(e -> {
+                if (ui.isClosing()) {
+                    removeUI(finalTabScope, ui);
+                }
+            });
         });
 
         // The "before any route or layout is created or initialized" guarantee is NOT enforced

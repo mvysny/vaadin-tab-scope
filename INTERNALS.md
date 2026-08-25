@@ -334,9 +334,8 @@ Three things drive cleanup:
 real error. Evicting a closing-but-still-attached UI here was
 [#5](https://github.com/mvysny/vaadin-tab-scope/issues/5): because `cleanupOrphans()` sweeps *every*
 scope in the session, another tab's UI init could drop a UI behind its own pending detach listener,
-which then threw `"Invalid state: uis doesn't contain given ui"`. (That exception is still reachable
-by one other route — a client-requested resync fires the detach listener on a live UI; see
-[#6](https://github.com/mvysny/vaadin-tab-scope/issues/6).)
+which then threw `"Invalid state: uis doesn't contain given ui"`. The one other route to that
+exception — a detach event fired for a UI that is not detaching at all — is the next subsection.
 
 The shared reaper thread is a daemon, lazily created, and shut down on `VaadinService` destroy
 (`addServiceDestroyListener`) so a servlet-container redeploy does not leak it.
@@ -358,6 +357,47 @@ costs nothing: it stops counting as live, so the scope still orphans and is reap
 mirror case is *not* this one: a tab closed with a **lost beacon** is never `close()`d at all, so
 `isClosing()` stays false and the UI legitimately keeps its scope alive until Flow's idle-UI cleanup
 (~15.5 min) or session destroy.
+
+#### A detach event is not always a detach
+
+`ui.addDetachListener` does **not** mean "the UI is going away". A client-requested
+**resynchronization** — the client lost a UIDL message, or a proxy killed a push connection, so it
+asks for the full state again — is served by `ServerRpcHandler#handleRpc` calling
+`StateTree#prepareForResync()`, which re-fires detach **and then attach** listeners across the whole
+node tree of a UI that never leaves the session. The UI's own node is in that tree, so the UI's
+`DetachEvent` fires while the tab is alive. Flow logs a WARN when this happens
+("Resynchronizing UI by client's request…").
+
+Taking that event at face value was [#6](https://github.com/mvysny/vaadin-tab-scope/issues/6): the
+scope lost its only UI, orphaned, and was reaped ~60 s later **while the tab was still open** —
+values gone, `getCurrent()` throwing "The TabScope instance is not available for this tab". There is
+no self-repair: `prepareForResync` re-fires attach, but a scope is only ever populated from the
+tab-init/ECD callback, which does not re-run.
+
+What a detach listener can actually observe, measured in both cases:
+
+| event | `ui.isAttached()` | `ui.isClosing()` | `ui.getSession()` | `stateTree.isPreparingForResync()` |
+|---|---|---|---|---|
+| resync | `true` | **`false`** | non-null | **`true`** |
+| genuine detach | `true` | **`true`** | non-null | `false` |
+
+`isAttached()` and `getSession()` are useless here: during a genuine detach `UIInternals#setSession`
+fires the listeners *before* nulling the session, and `StateNode#setParent` calls `onDetach()`
+*before* clearing the parent. So the guard is `isClosing()` — see "The assumption" above: both
+callers of `VaadinSession#removeUI` establish it, and `fireSessionDestroy` says so outright
+("`UI.isClosing()` is thus always true in `UI.detach()` and associated detach listeners").
+`StateTree#isPreparingForResync()` would be the *precise* discriminator, but it is `@since 24.7.5`
+and this add-on is `compileOnly` against Vaadin — using it would trade a fixed bug for a
+`NoSuchMethodError` on older Vaadins, the same trap as the deprecated-ECD call (see "ECD API").
+
+**The one residual window.** Nothing in Flow refuses a request for a closing UI, so a resync *can*
+land between `ui.close()` and the detach that follows at `requestEnd`. The guard passes (the UI is
+closing), the UI leaves `uis` early, and its real detach then hits `remove()`'s
+`IllegalStateException` — #5's symptom, by a much narrower route: it needs a resync inside that
+window. Left as-is deliberately. Closing it would mean making `remove()` tolerant of an absent UI,
+which is the *other* fix considered for #5 — and that would defang the assertion, and with it the
+regression tests that keep `updateOrphaned()` from evicting again. A logged exception at `requestEnd`
+is the cheaper failure; no tab-scoped state is lost on that path.
 
 ### Tab close
 
@@ -438,6 +478,11 @@ The cleanup analysis above was verified against `flow-server-25.2.1-sources.jar`
 - **Navigation / preserve:** `AbstractNavigationStateRenderer#disconnectElements` (1055–1073,
   `prevUi.close()` at 1071), the non-preserve `else` branch of `#populateChain` (328–339).
 - **ECD synchronous short-circuit:** `Page#retrieveExtendedClientDetails` (782–791).
+- **Resync:** `ServerRpcHandler#handleRpc` (436–463, `rpcRequest.isResynchronize()` →
+  `prepareForResync()` → `ResynchronizationRequiredException`), `StateTree#prepareForResync` (484),
+  `StateNode#prepareForResync` (458, `visitNodeTreeBottomUp(StateNode::fireDetachListeners)` then
+  re-fired attach listeners), `StateTree#isPreparingForResync` (505, `@since 24.7.5`). The UI-level
+  event comes from `ComponentMapping#onDetach` (110) → `ComponentUtil#onComponentDetach` (359).
 - **UI close flag:** `UI#close` (375–376, sets `closing = true`); the detach itself is
   `VaadinSession#removeUI` (681) → `UIInternals#setSession(null)` (506–535), whose only two callers
   are `#removeClosedUIs` and `#fireSessionDestroy` (1050–1063, closes each UI before removing it).
@@ -583,6 +628,11 @@ What still isn't testable this way is the *timing* itself (the race is determini
   session destroy closes all scopes, and `getCurrent()` / `getValues()` fail fast in their guard
   cases.
 
+- `TabScopeResyncTest` pins the **resync** case ([#6](https://github.com/mvysny/vaadin-tab-scope/issues/6)):
+  a resync must cost a live tab nothing (same scope, same values, no orphaning for the next sweep to
+  reap), and the guard must not deafen us to the real detach — a resynced tab still reaps once it
+  genuinely closes. Karibu does not simulate resync, so the tests call `StateTree#prepareForResync()`,
+  the production call site, directly.
 - `TabScopeClosingUiTest` pins the **closing-but-not-yet-detached** UI
   ([#5](https://github.com/mvysny/vaadin-tab-scope/issues/5)), the state `UI.close()` leaves behind
   until `requestEnd`: an unrelated tab's init must leave such a UI hooked (its detach listener is
