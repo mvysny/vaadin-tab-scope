@@ -99,11 +99,14 @@ public final class TabScope implements Serializable {
      */
     private class Lifecycle implements Serializable {
         /**
-         * A set of UIs hooked to this tab scope. Overwhelmingly contains exactly
-         * one UI, but on page refresh, it may contain zero or two UIs, based on
+         * The UIs hooked to this tab scope, i.e. those whose detach is still expected. Overwhelmingly
+         * contains exactly one UI, but on page refresh, it may contain zero or two UIs, based on
          * the ordering of old-UI-destroy and new-UI-create events.
          * <br/>
-         * This set is only used to track whether a tab scope is active.
+         * Membership is <em>not</em> the same as "keeps the scope alive": a UI that Vaadin has closed
+         * but not yet detached, and a {@link #beaconClosed} one, both stay here while no longer
+         * counting as live in {@link #updateOrphaned()}. Entries leave only via {@link #remove(UI)},
+         * from the UI's own detach listener.
          */
         private final Set<UI> uis = new HashSet<>();
 
@@ -145,6 +148,14 @@ public final class TabScope implements Serializable {
             cancelReap();
         }
 
+        /**
+         * Unhooks a detached {@code ui} from this scope. A no-op once the scope is closed — the
+         * scope may be reaped while a closed UI still awaits its detach.
+         *
+         * @throws IllegalStateException if {@code ui} was already unhooked. Reachable today only via
+         *                               <a href="https://github.com/mvysny/vaadin-tab-scope/issues/6">issue #6</a>
+         *                               (a client-requested resync fires the detach listener on a live UI).
+         */
         public void remove(@NotNull UI ui) {
             if (closed) {
                 return;
@@ -170,10 +181,14 @@ public final class TabScope implements Serializable {
             }
         }
 
+        /**
+         * Re-derives orphan state: a UI that Vaadin has closed, and a {@link #beaconClosed} one, stop
+         * counting as live without leaving {@link #uis} — evicting one here would drop it behind its
+         * own still-pending detach listener.
+         */
         private void updateOrphaned() {
-            uis.removeIf(UI::isClosing);
             beaconClosed.retainAll(uis);
-            final boolean hasLiveUI = uis.stream().anyMatch(ui -> !beaconClosed.contains(ui));
+            final boolean hasLiveUI = uis.stream().anyMatch(ui -> !ui.isClosing() && !beaconClosed.contains(ui));
             if (!hasLiveUI && orphanedSince == null) {
                 // orphaned - no live UI points to this tab scope.
                 orphanedSince = System.currentTimeMillis();

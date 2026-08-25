@@ -327,11 +327,37 @@ Three things drive cleanup:
   every UI detach (`removeUI`), so a scope orphaned by one tab is also reaped by activity in another.
 - **Session destroy.** `destroyAllTabScopes()` closes everything as the reliable floor.
 
-`updateOrphaned()` also drops UIs for which `UI.isClosing()` is true (and does not count
-beacon-closed UIs — see "Tab close"), so such a UI does not keep a scope alive.
+`updateOrphaned()` does not count a UI for which `UI.isClosing()` is true, nor a beacon-closed one
+(see "Tab close"), so neither keeps a scope alive. It does **not** remove either from
+`Lifecycle.uis`: entries leave only through the UI's own detach listener, so `uis` always means
+"UIs whose detach we still expect" — which is what lets `Lifecycle.remove()` treat a missing UI as a
+real error. Evicting a closing-but-still-attached UI here was
+[#5](https://github.com/mvysny/vaadin-tab-scope/issues/5): because `cleanupOrphans()` sweeps *every*
+scope in the session, another tab's UI init could drop a UI behind its own pending detach listener,
+which then threw `"Invalid state: uis doesn't contain given ui"`. (That exception is still reachable
+by one other route — a client-requested resync fires the detach listener on a live UI; see
+[#6](https://github.com/mvysny/vaadin-tab-scope/issues/6).)
 
 The shared reaper thread is a daemon, lazily created, and shut down on `VaadinService` destroy
 (`addServiceDestroyListener`) so a servlet-container redeploy does not leak it.
+
+#### The assumption: Flow always detaches a UI it has closed
+
+Not counting a closing UI means we rely on its detach eventually arriving. It does:
+`VaadinSession#removeUI` has exactly two callers — `VaadinService#removeClosedUIs`, which runs at
+every `requestEnd` with an active session and sweeps the whole session, and `#fireSessionDestroy`,
+which closes each UI first (its own comment: *"`UI.isClosing()` is thus always true in `UI.detach()`
+and associated detach listeners"*). Heartbeats are requests too, so even an idle tab's client keeps
+triggering the first one every ~300 s.
+
+The one way a UI stays closing-but-attached indefinitely is being closed **off-request** (a
+background thread via `access`) in a session that then receives no further request at all. That
+costs nothing: it stops counting as live, so the scope still orphans and is reaped on schedule
+(`close()` clears `uis`), and a not-yet-detached UI is by definition still held by
+`session.getUIs()` — keeping it in `uis` retains nothing the session wasn't holding anyway. Note the
+mirror case is *not* this one: a tab closed with a **lost beacon** is never `close()`d at all, so
+`isClosing()` stays false and the UI legitimately keeps its scope alive until Flow's idle-UI cleanup
+(~15.5 min) or session destroy.
 
 ### Tab close
 
@@ -412,7 +438,9 @@ The cleanup analysis above was verified against `flow-server-25.2.1-sources.jar`
 - **Navigation / preserve:** `AbstractNavigationStateRenderer#disconnectElements` (1055–1073,
   `prevUi.close()` at 1071), the non-preserve `else` branch of `#populateChain` (328–339).
 - **ECD synchronous short-circuit:** `Page#retrieveExtendedClientDetails` (782–791).
-- **UI close flag:** `UI#close` (375–376, sets `closing = true`).
+- **UI close flag:** `UI#close` (375–376, sets `closing = true`); the detach itself is
+  `VaadinSession#removeUI` (681) → `UIInternals#setSession(null)` (506–535), whose only two callers
+  are `#removeClosedUIs` and `#fireSessionDestroy` (1050–1063, closes each UI before removing it).
 - **Inactive-UI reaping:** `VaadinService#closeInactiveUIs` (1764–1772), `#removeClosedUIs`
   (1748), `#isUIActive` (1832), `#getHeartbeatTimeout` (1791) = `heartbeatInterval × 3.1`;
   `DefaultDeploymentConfiguration.DEFAULT_HEARTBEAT_INTERVAL` = 300 (72) → ≈ 930 s ≈ 15.5 min.
@@ -554,6 +582,14 @@ What still isn't testable this way is the *timing* itself (the race is determini
   lost-beacon background tab is reaped (`MockVaadin.reapInactiveUIs()`) and its scope destroyed,
   session destroy closes all scopes, and `getCurrent()` / `getValues()` fail fast in their guard
   cases.
+
+- `TabScopeClosingUiTest` pins the **closing-but-not-yet-detached** UI
+  ([#5](https://github.com/mvysny/vaadin-tab-scope/issues/5)), the state `UI.close()` leaves behind
+  until `requestEnd`: an unrelated tab's init must leave such a UI hooked (its detach listener is
+  still pending), a whole batch of them — Flow closes every inactive UI before detaching any — must
+  survive until each is detached, and a closed UI must still keep nothing alive. The first two
+  assert through the session's `ErrorHandler`, since that is where a throwing detach listener lands
+  on the session-destroy path.
 
   Reaping is time-gated on `System.currentTimeMillis()` inside our own code, so Karibu can't help.
   `TabScope.CLEANUP_DURATION_MS` is a public, app-configurable grace period (60 s by default); the
