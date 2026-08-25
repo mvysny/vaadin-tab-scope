@@ -31,13 +31,19 @@ Only the `tab-scope` module is published to Maven Central (the `testapp` demo is
 
 To release the library to Maven Central:
 
-1. Run the full build to make sure everything is green: `./gradlew clean build`
-2. Edit `build.gradle.kts` and remove `-SNAPSHOT` from the `version =` stanza, e.g. "0.1"
-3. Edit `README.md`: bump the version in the Gradle/Maven install snippets to match the release (if present)
-4. Run `./gradlew clean build publish closeAndReleaseStagingRepositories`
-5. (Optional) watch [Maven Central Publishing Deployments](https://central.sonatype.com/publishing/deployments) as the deployment is published.
-6. Commit with the commit message of simply being the version being released, e.g. "0.1"
-7. git tag the commit with the same tag name as the commit message above, e.g. `0.1`
-8. `git push`, `git push --tags`
-9. Add the `-SNAPSHOT` back to the `version =` while bumping it to the next planned release,
-   e.g. 0.2-SNAPSHOT, then commit with the commit message "0.2-SNAPSHOT" and push.
+1. Update [CHANGELOG.md](CHANGELOG.md) first: add a section for the version being released, listing
+   the notable changes since the previous tag (`git log --oneline <prev-tag>..HEAD`). Keep each
+   entry under 40 words — the file doubles as the GitHub release notes.
+2. Run the full build to make sure everything is green: `./gradlew clean build`
+3. Edit `build.gradle.kts` and remove `-SNAPSHOT` from the `version =` stanza, e.g. "0.1"
+4. Edit `README.md`: bump the version in the Gradle/Maven install snippets to match the release (if present)
+5. Run `./gradlew clean build publish closeAndReleaseStagingRepositories`
+6. (Optional) watch [Maven Central Publishing Deployments](https://central.sonatype.com/publishing/deployments) as the deployment is published.
+7. Commit with the commit message of simply being the version being released, e.g. "0.1"
+8. git tag the commit with the same tag name as the commit message above, e.g. `0.1`
+9. `git push`, `git push --tags`
+10. Create the GitHub release from the CHANGELOG section you wrote in step 1 — copy that section's
+    body into a file and run `gh release create <tag> --title <tag> --notes-file <file> --verify-tag`.
+    Don't hand-write separate notes; the CHANGELOG is the single source.
+11. Add the `-SNAPSHOT` back to the `version =` while bumping it to the next planned release,
+    e.g. 0.2-SNAPSHOT, then commit with the commit message "0.2-SNAPSHOT" and push.
