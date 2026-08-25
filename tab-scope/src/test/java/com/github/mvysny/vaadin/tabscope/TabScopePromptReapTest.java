@@ -141,6 +141,42 @@ public class TabScopePromptReapTest {
     }
 
     /**
+     * The third route into an orphaned scope, next to a detach and a beacon: a UI that Vaadin has
+     * closed but not yet detached. Since <a href="https://github.com/mvysny/vaadin-tab-scope/issues/5">issue #5</a>
+     * such a UI stays in {@code Lifecycle.uis} while no longer counting as live, so the timer must
+     * still arm — and the reap must land while the UI is still attached, leaving its eventual real
+     * detach silent. See INTERNALS.md, "Cleanup".
+     */
+    @Test
+    public void closingButAttachedUiArmsTheReapToo() {
+        final String closingTab = MockBrowser.getCurrentWindowName();
+        final UI ui = UI.getCurrent();
+        final AtomicInteger destroyed = new AtomicInteger();
+        TabScope.getCurrent().addDestroyListener(ts -> destroyed.incrementAndGet());
+
+        ui.close();
+        assertEquals(0, scheduler.pendingCount(), "close() fires no event on its own: nothing armed yet");
+
+        // Another tab's UI init sweeps and re-derives orphan state; it also gives the browserless
+        // harness a current UI to drain the reap's session.access queue with.
+        MockBrowser.newTab();
+
+        assertEquals(1, scheduler.pendingCount(), "the closing-but-attached UI armed the reap");
+        assertEquals(0, destroyed.get(), "still within the grace period: not reaped yet");
+        assertTrue(ui.isClosing(), "closed...");
+        assertTrue(ui.isAttached(), "...but Flow has not detached it yet");
+
+        TabScope.CLEANUP_DURATION_MS = -1L;
+        scheduler.fireAll();
+        MockVaadin.clientRoundtrip();
+
+        assertEquals(1, destroyed.get(), "the timer reaped the scope held only by a closing UI");
+        assertTrue(ui.isAttached(), "...while that UI is still awaiting its detach");
+        assertDoesNotThrow(() -> MockBrowser.closeTab(closingTab),
+                "its later detach is silent: remove() no-ops on an already-closed scope");
+    }
+
+    /**
      * With {@link TabScope#scheduledReapEnabled} = {@code false}, orphaning arms no background reap;
      * the app rides Vaadin's default closing + request-driven/session-destroy cleanup instead.
      */

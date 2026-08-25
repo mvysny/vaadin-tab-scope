@@ -652,7 +652,10 @@ What still isn't testable this way is the *timing* itself (the race is determini
   `session.access` the reap enqueues via `MockVaadin.clientRoundtrip()`. It covers: the timer alone
   reaping a closed tab with no further request; a reattach within grace cancelling the reap;
   `onUnloadBeacon` starting the clock while the `@PreserveOnRefresh` UI stays attached; a
-  beacon-then-F5 keeping the scope; and `installTabCloseBeacon` swapping the stock handler.
+  beacon-then-F5 keeping the scope; a closing-but-still-attached UI arming the reap just as a
+  detach or a beacon does (the third orphaning route, unchanged by the issue #5 fix — that fix moved
+  the `isClosing` test from a mutation of `uis` into the liveness filter, leaving orphan timing
+  identical); and `installTabCloseBeacon` swapping the stock handler.
 
   These two — `CLEANUP_DURATION_MS` and `reapScheduler` — are the only production seams added for
   testing. What Karibu **cannot** do is route a beacon through a real (app-customized)
