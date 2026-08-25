@@ -11,7 +11,7 @@ defaultTasks("clean", "build")
 
 allprojects {
     group = "com.github.mvysny.vaadintabscope"
-    version = "0.3-SNAPSHOT"
+    version = "0.3"
 
     repositories {
         mavenCentral()
