@@ -10,7 +10,9 @@
 FROM eclipse-temurin:21 AS builder
 COPY . /app/
 WORKDIR /app/
-RUN --mount=type=cache,target=/root/.gradle,sharing=locked --mount=type=cache,target=/root/.vaadin,sharing=locked ./gradlew clean build -Pvaadin.productionMode --no-daemon --no-watch-fs
+# `-x designTripwires`: the doc-layer checks enumerate the docs via `git ls-files`, and this image
+# has no git. They are a checkout-side concern anyway - CI runs them; the container only needs the app.
+RUN --mount=type=cache,target=/root/.gradle,sharing=locked --mount=type=cache,target=/root/.vaadin,sharing=locked ./gradlew clean build -Pvaadin.productionMode -x designTripwires --no-daemon --no-watch-fs
 WORKDIR /app/testapp/build/distributions/
 RUN tar xvf testapp.tar
 # At this point, we have the app (executable bash scrip plus a bunch of jars) in the
