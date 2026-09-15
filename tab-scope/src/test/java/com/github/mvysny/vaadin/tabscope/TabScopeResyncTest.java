@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <br/>
  * {@code StateTree#prepareForResync()} is the production call site, invoked by
  * {@code ServerRpcHandler#handleRpc} on a resync request; Karibu does not simulate resync itself, so
- * the tests call it directly. See INTERNALS.md, "A detach event is not always a detach".
+ * the tests call it directly. See design/research.md, {@code R_flow_resync}.
  */
 public class TabScopeResyncTest {
     private static Routes routes;

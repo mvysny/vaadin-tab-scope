@@ -9,6 +9,19 @@ plugins {
 
 defaultTasks("clean", "build")
 
+// The doc-layer tripwires: cited D_/R_ slugs resolve, decision headings are questions, the size
+// caps hold, CLAUDE.md is a symlink to AGENTS.md. The bash script is the single implementation;
+// this task only runs it, hooked onto `check` so `./gradlew build` covers it. Skipped outside a
+// git checkout (the script enumerates via `git ls-files`), so a source-tarball build still works.
+val designTripwires by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Design docs: cited slugs resolve, headings and caps hold, CLAUDE.md is a symlink"
+    workingDir = rootDir
+    commandLine("bash", "design/verify_design_tripwires.sh")
+    onlyIf { rootDir.resolve(".git").exists() }
+}
+tasks.named("check") { dependsOn(designTripwires) }
+
 allprojects {
     group = "com.github.mvysny.vaadintabscope"
     version = "0.4-SNAPSHOT"

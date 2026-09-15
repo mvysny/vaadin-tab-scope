@@ -10,7 +10,8 @@ resets) and the old scope orphans and is reaped, which a `addDestroyListener` co
 This is only testable across real browsers — Karibu can simulate the *consequence* of a changed
 name (`TabIdentityTest`) but cannot measure which browser/action actually drops it. Run this matrix
 by hand and record the results under **[Last Testing Outcome](#last-testing-outcome)** at the bottom,
-then fold the confirmed findings into README (INTERNALS "Tab identity fragility").
+then fold the confirmed findings into `R_window_name_browsers` in
+[design/research.md](design/research.md), which is where the rest of the project reads them.
 
 The file has two halves: everything above the "Last Testing Outcome" heading is the stable **test
 definition** (how to run, what to observe, the scenarios). That half is edited only when the harness
@@ -302,7 +303,7 @@ Each entry leads with its expected verdict. The harness must be running and you 
   tab should get a **fresh** `window.name` → new scope. Confirms new tabs aren't mis-merged.
 
 - **S10 — Reopen closed tab.** *Expected: new scope.* Close the tab, then **Cmd/Ctrl-Shift-T**. Per
-  INTERNALS, reopening does **not** preserve `window.name`; expect a new scope, and (~60 s after the
+  `R_window_name_browsers`, reopening does **not** preserve `window.name`; expect a new scope, and (~60 s after the
   original close) a `Destroying` for the old name.
 
 - **S11 — Restore-after-quit.** *Expected: undefined — measure.* Configure the browser to reopen

@@ -21,8 +21,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * {@code UI.close()} only sets a flag and the detach follows at {@code requestEnd} or session
  * destroy. Such a UI must stop keeping its scope alive without leaving {@code Lifecycle.uis}, so its
  * own pending detach listener still finds it there
- * (<a href="https://github.com/mvysny/vaadin-tab-scope/issues/5">issue #5</a>). See INTERNALS.md,
- * "Cleanup".
+ * (<a href="https://github.com/mvysny/vaadin-tab-scope/issues/5">issue #5</a>). See
+ * design/decisions.md, {@code D_strict_uis}.
  */
 public class TabScopeClosingUiTest {
     private static Routes routes;

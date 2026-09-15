@@ -8,8 +8,8 @@ import com.vaadin.flow.router.Route;
  * A {@link PreserveOnRefresh} route that is <em>not</em> {@link TabScoped}. Real Flow ignores the
  * browser unload beacon for such routes and instead teleports the old UI's chain onto the new UI,
  * so the reload never produces a zero-UI gap. This view lets tests assert that tab-scoped values
- * survive that beacon-ignored path too — the tab scope is annotation-agnostic (see INTERNALS.md,
- * "Relationship to {@code @PreserveOnRefresh}").
+ * survive that beacon-ignored path too — the tab scope is annotation-agnostic (see
+ * design/decisions.md, {@code D_annotation_agnostic}).
  */
 @Route("preserve")
 @PreserveOnRefresh

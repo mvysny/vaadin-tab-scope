@@ -1,7 +1,11 @@
 # Vaadin Tab Scope
 
 A small library giving Vaadin Flow apps **tab-scoped values** and **tab-scoped routes**.
-No Spring - pure Servlet.
+No Spring - pure Servlet. Flow owns the `UI`, which does not survive a page reload, and
+`UIInitListener`, which fires once per reload rather than once per browser tab; this project owns
+what that leaves missing — a per-tab value store keyed on the browser's `window.name` that survives
+reload and navigation, `@TabScoped` routes and layouts cached in it, and the cleanup that decides
+when a tab has really gone away.
 
 This repo is a two-module Gradle build:
 
@@ -26,8 +30,9 @@ those issues. Moreover, the implementation works correctly even without the `@Pr
 
 - [Live demo at v-herd](https://v-herd.eu/vaadin-tab-scope-example)
 - Background: [Tab Scope blog post](https://mvysny.github.io/vaadin-ui-scope/) and [issue #13468](https://github.com/vaadin/flow/issues/13468)
-- **How it actually works, and every investigated fact behind it: see [INTERNALS.md](INTERNALS.md).**
-- Future design proposals, when there are any, go under `ideas/`.
+- **How it actually works:** [design/architecture.md](design/architecture.md). Why it is built that
+  way: [design/decisions.md](design/decisions.md). What Flow and the browsers actually do, with
+  provenance: [design/research.md](design/research.md).
 
 > Note: this branch demoes the tab scope for Vaadin 24/25. See the [v23](../../tree/v23) branch for
 > the Vaadin 23 version of this app.
@@ -150,7 +155,7 @@ abrupt `kill -9` / power loss skips it, exactly as it skips every shutdown hook 
 particular to this listener. A **sole-last-tab close** fires the listener promptly too (within ~60 s),
 via an always-on scheduled reap — for `@PreserveOnRefresh` routes you additionally wire the tab-close
 beacon hook (see below). What stays container-paced is only a genuine *idle timeout* with the tab left
-open (see [INTERNALS.md](INTERNALS.md) → "When destroy listeners fire" and
+open (see [design/research.md](design/research.md) → `R_flow_session_destroy` and
 [issue #3](https://github.com/mvysny/vaadin-tab-scope/issues/3)).
 
 See the `MainView` and `MainViewNoAppLayout` views for a regular route (prototype-scoped:
@@ -188,7 +193,7 @@ the unload beacon for that route, so wire the optional tab-close beacon hook (se
 reap for `@PreserveOnRefresh` routes" above) to have the scope reaped promptly on a sole-tab close
 rather than at session timeout. Plain routes need no such wiring.
 
-For the full reasoning, see [INTERNALS.md](INTERNALS.md) → "Relationship to `@PreserveOnRefresh`".
+For the full reasoning, see [design/decisions.md](design/decisions.md) → `D_annotation_agnostic`.
 
 ### The browser can detect a reload — can't you use that to clean up tab scopes faster?
 
@@ -200,8 +205,8 @@ loaded, at which point tab scoping has already recognized the returning tab by i
 and reused its scope — the reload flag tells us nothing new. And a closed tab never loads a new
 page, so there's no signal to read there at all; a scope orphaned by a real close is only ever
 detected by the fact that no new page comes back for it. That's exactly what the built-in
-grace-period cleanup already handles. See [INTERNALS.md](INTERNALS.md) → "Cleanup" for the full
-reasoning.
+grace-period cleanup already handles. See [design/decisions.md](design/decisions.md) →
+`D_grace_period` for the full reasoning.
 
 ## Limitations
 
@@ -214,7 +219,9 @@ as of 26.5.2. Quit/crash-restore and reopen-closed-tab legitimately start a fres
 browser. The complete matrix and per-browser results are in
 **[WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md)**.
 
-The exact browser behaviors, the reload/refresh mechanics, tab-scope cleanup, and the reasons
-behind every design choice are documented in **[INTERNALS.md](INTERNALS.md)**.
+The exact browser behaviors and reload/refresh mechanics are recorded in
+**[design/research.md](design/research.md)**, the cleanup machinery in
+**[design/architecture.md](design/architecture.md)**, and the reasons behind every design choice in
+**[design/decisions.md](design/decisions.md)**.
 
 See also [issue #21141](https://github.com/vaadin/flow/issues/21141).

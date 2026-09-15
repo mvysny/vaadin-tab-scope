@@ -10,7 +10,7 @@ Uses JUnit + [Karibu-Testing](https://github.com/mvysny/karibu-testing) (browser
 - Library tests only (fast, no frontend build): `./gradlew :tab-scope:test`
 - A single test: `./gradlew :testapp:test --tests testapp.MainViewTest`
 
-There is no browser/Selenium layer in this repo. The `window.name`-preservation behavior that tab identity depends on is only testable manually across real browsers — see the "Known fragility" notes in [CLAUDE.md](CLAUDE.md) and [INTERNALS.md](INTERNALS.md).
+There is no browser/Selenium layer in this repo. The `window.name`-preservation behavior that tab identity depends on is only testable manually across real browsers — see `R_window_name_browsers` in [design/research.md](design/research.md).
 
 ### Manual Tests
 

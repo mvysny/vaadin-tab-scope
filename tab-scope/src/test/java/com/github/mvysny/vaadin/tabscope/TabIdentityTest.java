@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tab identity is keyed on {@code window.name}. Most browsers preserve it across an F5 (so the scope
  * survives), but some do not — Safari 18.3.1 with dev tools closed, or navigation via typed URL /
  * bookmark ([vaadin/flow#21141]) — and then the reloaded page arrives as a brand-new tab. This
- * exercises both outcomes via {@link MockBrowser#reload}. See INTERNALS.md, "Tab identity fragility".
+ * exercises both outcomes via {@link MockBrowser#reload}. See design/research.md,
+ * {@code R_window_name_browsers}.
  */
 public class TabIdentityTest {
     private static Routes routes;

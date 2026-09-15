@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Exercises tab-scope survival across an F5 page reload under every browser unload-beacon ordering
  * that Karibu-Testing can reproduce ({@link UnloadBeaconTiming}, set via
  * {@link KaribuConfig#setUnloadBeaconTiming}). Each ordering models a distinct real reload path
- * documented in INTERNALS.md ("Cleanup" &rarr; "Why the timer is necessary"); the old
+ * documented in design/decisions.md ({@code D_grace_period}); the old
  * single-{@code reload()} tests only ever covered the default {@link UnloadBeaconTiming#EAGER}
  * path:
  * <ul>

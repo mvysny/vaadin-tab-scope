@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Exercises the orphan-cleanup and session-destroy branches of {@link TabScope.Lifecycle} that the
- * survival-oriented tests never reach: the scope actually being <em>reaped</em>. See INTERNALS.md,
- * "Cleanup".
+ * survival-oriented tests never reach: the scope actually being <em>reaped</em>. See
+ * design/architecture.md, "Flows".
  */
 public class TabScopeLifecycleTest {
     private static Routes routes;

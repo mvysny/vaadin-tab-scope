@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Covers the always-on scheduled reap (issue #3): an orphaned scope is destroyed after
  * the grace period by the timer alone, with no further request in the session — the case that a sole
  * last browser tab produces. Uses {@link ManualReapScheduler} so the timer fires deterministically
- * without real sleeps; see INTERNALS.md, "Cleanup".
+ * without real sleeps; see design/decisions.md, {@code D_scheduled_reaper}.
  */
 public class TabScopePromptReapTest {
     private static Routes routes;
@@ -145,7 +145,7 @@ public class TabScopePromptReapTest {
      * closed but not yet detached. Since <a href="https://github.com/mvysny/vaadin-tab-scope/issues/5">issue #5</a>
      * such a UI stays in {@code Lifecycle.uis} while no longer counting as live, so the timer must
      * still arm — and the reap must land while the UI is still attached, leaving its eventual real
-     * detach silent. See INTERNALS.md, "Cleanup".
+     * detach silent. See design/decisions.md, {@code D_strict_uis}.
      */
     @Test
     public void closingButAttachedUiArmsTheReapToo() {

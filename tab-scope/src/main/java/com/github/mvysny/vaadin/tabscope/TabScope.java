@@ -154,8 +154,8 @@ public final class TabScope implements Serializable {
          *
          * @throws IllegalStateException if {@code ui} was already unhooked — only reachable by one
          *                               narrow race, a resync landing between {@code ui.close()} and
-         *                               the detach that follows it (see INTERNALS.md, "A detach event
-         *                               is not always a detach").
+         *                               the detach that follows it (see design/decisions.md,
+         *                               {@code D_strict_uis}).
          */
         public void remove(@NotNull UI ui) {
             if (closed) {
@@ -388,8 +388,8 @@ public final class TabScope implements Serializable {
     // purpose: retrieveExtendedClientDetails is @since 2.0 and works on every Flow version, while
     // the replacements are @since 25.0 and eager v-wn-on-bootstrap only @since 25.2. This add-on is
     // compileOnly against Vaadin so consumers bring their own version — migrating would swap a
-    // deprecation warning for a NoSuchMethodError on pre-25 Vaadins. See INTERNALS ("ECD API: why
-    // the deprecated retrieveExtendedClientDetails").
+    // deprecation warning for a NoSuchMethodError on pre-25 Vaadins. See design/decisions.md
+    // (D_compileonly_api_floor) and design/research.md (R_flow_ecd_api).
     @SuppressWarnings("deprecation")
     private static void init(@NotNull SerializableConsumer<TabScope> tabInitListener) {
         final UI ui = UI.getCurrent();
@@ -414,12 +414,11 @@ public final class TabScope implements Serializable {
 
             // On tab close the beacon detaches the UI, starting the orphan grace period; a
             // reopened tab arrives with a fresh window.name, so nothing needs reconnecting.
-            // See INTERNALS.md ("Tab close needs no special handling").
+            // See design/architecture.md ("Flows").
             //
             // A detach event is not proof of a detach: a client-requested resync re-fires detach
             // (and attach) across the whole state tree of a UI that stays attached. Only a UI that
-            // Vaadin has closed is really going away — see INTERNALS.md ("A detach event is not
-            // always a detach").
+            // Vaadin has closed is really going away — see design/research.md (R_flow_resync).
             ui.addDetachListener(e -> {
                 if (ui.isClosing()) {
                     removeUI(finalTabScope, ui);
@@ -429,7 +428,7 @@ public final class TabScope implements Serializable {
 
         // The "before any route or layout is created or initialized" guarantee is NOT enforced
         // here; it relies on Vaadin deferring navigation until ExtendedClientDetails is fetched.
-        // This is fragile — see INTERNALS.md ("Ordering") and vaadin/flow#13468.
+        // This is fragile — see design/research.md (R_flow_ecd_api) and vaadin/flow#13468.
     }
 
     /**

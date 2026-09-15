@@ -16,7 +16,8 @@ import org.jetbrains.annotations.NotNull;
  */
 public class MainLayout extends AppLayout {
     // retrieveExtendedClientDetails is deprecated in Flow 25.x but kept for the same
-    // cross-version reason as the library's TabScope.init — see INTERNALS ("ECD API").
+    // cross-version reason as the library's TabScope.init — see design/decisions.md
+    // (D_compileonly_api_floor).
     @SuppressWarnings("deprecation")
     public MainLayout() {
         DrawerToggle toggle = new DrawerToggle();

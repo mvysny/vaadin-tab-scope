@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  * Covers {@link TabScopedRouteInstantiator}'s caching across <em>navigation</em> (not just reload),
  * for both {@code @TabScoped} routes and {@code @TabScoped} layouts. This is the behavior that makes
  * tab scope a strict superset of {@code @PreserveOnRefresh} (which discards its instance on
- * navigation) — see INTERNALS.md, "Relationship to {@code @PreserveOnRefresh}".
+ * navigation) — see design/decisions.md, {@code D_annotation_agnostic}.
  */
 public class TabScopedRoutingTest {
     private static Routes routes;

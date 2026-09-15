@@ -3,6 +3,18 @@ name: Gradle
 on: [push, pull_request]
 
 jobs:
+  design-tripwires:
+    # Its own job on an image with bash + git: the doc layer is checkable without a JVM, and a
+    # doc failure then reads as a doc failure rather than as a build one.
+    runs-on: ubuntu-latest
+    container: buildpack-deps:scm
+    steps:
+    - uses: actions/checkout@v6
+    - name: Verify the design docs
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        design/verify_design_tripwires.sh
+
   build:
 
     strategy:
