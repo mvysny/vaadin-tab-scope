@@ -24,7 +24,7 @@ when a tab has really gone away.
 | `design/architecture.md` | how the pieces compose — wiring, threads, the three lifecycle flows; normative | lazy |
 | `design/decisions.md` | why this and not that — `D_` entries, FAQ-shaped | lazy |
 | `design/research.md` | what Flow and the browsers actually do — `R_` entries, each claim with provenance | lazy |
-| `WINDOW-NAME-BROWSER-TESTS.md` | the manual cross-browser test protocol, and the latest run's raw results | lazy |
+| `design/window-name-browser-tests.md` | the manual cross-browser test protocol, and the latest run's raw results | lazy |
 | `CONTRIBUTING.md` | how to run the tests, the manual-test checklist, the release steps | lazy |
 | `CHANGELOG.md` | what changed per released version; doubles as the GitHub release notes | lazy |
 | doc comments | what one symbol does and why it is shaped so | at the symbol |

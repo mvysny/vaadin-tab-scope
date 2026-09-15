@@ -26,6 +26,6 @@ Notable changes per release. Older releases (0.1, 0.2) predate this file; see th
 ### Docs
 
 - Cross-browser `window.name` sweep completed ([#2](https://github.com/mvysny/vaadin-tab-scope/issues/2)),
-  results in [WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md). The address-bar/bookmark
+  results in [design/window-name-browser-tests.md](design/window-name-browser-tests.md). The address-bar/bookmark
   `window.name` drop was a Safari 18.3.1 bug, fixed as of Safari 26.5.2; current Chrome, Firefox and
   Safari all preserve it.

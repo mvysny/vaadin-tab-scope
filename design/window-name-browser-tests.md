@@ -11,7 +11,7 @@ This is only testable across real browsers — Karibu can simulate the *conseque
 name (`TabIdentityTest`) but cannot measure which browser/action actually drops it. Run this matrix
 by hand and record the results under **[Last Testing Outcome](#last-testing-outcome)** at the bottom,
 then fold the confirmed findings into `R_window_name_browsers` in
-[design/research.md](design/research.md), which is where the rest of the project reads them.
+[research.md](research.md), which is where the rest of the project reads them.
 
 The file has two halves: everything above the "Last Testing Outcome" heading is the stable **test
 definition** (how to run, what to observe, the scenarios). That half is edited only when the harness

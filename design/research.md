@@ -189,6 +189,6 @@ and cut what the provenance markers already carry.
   never touches the real tab's name — noise in a log, not a verdict.
   **[verified 2026-07-22, Safari 26.5.2]**
 - The protocol behind these claims, the per-browser run tables, the automation caveats, and Edge
-  and iOS Safari (still unrun) are in [WINDOW-NAME-BROWSER-TESTS.md](../WINDOW-NAME-BROWSER-TESTS.md)
+  and iOS Safari (still unrun) are in [window-name-browser-tests.md](window-name-browser-tests.md)
   ([issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2),
   [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141)).

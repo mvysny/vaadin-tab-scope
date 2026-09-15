@@ -217,7 +217,7 @@ Inspector closed), but a full cross-browser sweep on 2026-07-22 found **current 
 Safari 26.5.2 all preserve `window.name`** across every reload/navigation — the Safari drop is fixed
 as of 26.5.2. Quit/crash-restore and reopen-closed-tab legitimately start a fresh scope on every
 browser. The complete matrix and per-browser results are in
-**[WINDOW-NAME-BROWSER-TESTS.md](WINDOW-NAME-BROWSER-TESTS.md)**.
+**[design/window-name-browser-tests.md](design/window-name-browser-tests.md)**.
 
 The exact browser behaviors and reload/refresh mechanics are recorded in
 **[design/research.md](design/research.md)**, the cleanup machinery in
