@@ -216,7 +216,15 @@ navigation arrives as a brand-new tab scope. Historically **Safari 18.3.1** did 
 Inspector closed), but a full cross-browser sweep on 2026-07-22 found **current Chrome, Firefox and
 Safari 26.5.2 all preserve `window.name`** across every reload/navigation — the Safari drop is fixed
 as of 26.5.2. Quit/crash-restore and reopen-closed-tab legitimately start a fresh scope on every
-browser. The complete matrix and per-browser results are in
+browser.
+
+**Leaving for another site and coming back by a redirect loses the tab.** Firefox clears
+`window.name` on a cross-site navigation, so a tab that goes out to a payment or SSO provider and is
+redirected back arrives as a new tab with a fresh scope. Pressing Back is fine; Firefox restores the
+name. Chrome is rolling out the same clearing, and Safari is reported to do it too. A fix via
+`sessionStorage` is being explored in [#7](https://github.com/mvysny/vaadin-tab-scope/issues/7).
+
+The complete matrix and per-browser results are in
 **[design/window-name-browser-tests.md](design/window-name-browser-tests.md)**.
 
 The exact browser behaviors and reload/refresh mechanics are recorded in

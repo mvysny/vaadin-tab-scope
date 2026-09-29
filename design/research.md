@@ -188,7 +188,36 @@ and cut what the provenance markers already carry.
   own blank `window.name`, which reads server-side as a phantom tab that immediately orphans. It
   never touches the real tab's name — noise in a log, not a verdict.
   **[verified 2026-07-22, Safari 26.5.2]**
+- **Firefox clears the name on a cross-site top-level navigation**, and a return by a *fresh*
+  navigation — a link, a 302, a JS `location.href`, a POST form, i.e. every way a payment or SSO
+  provider sends the user back — arrives with `""`. Only Back restores it (S7). So such a round
+  trip lands as a new tab. **[verified 2026-09-29, Playwright Firefox 155, headless]**
+- Chromium keeps the name across that hop, readable by the other site. It clears like Firefox
+  only with `ClearCrossSiteCrossBrowsingContextGroupWindowName` enabled **and** bfcache on — the
+  clear hangs off a browsing-context-group swap, which Playwright's `--disable-back-forward-cache`
+  suppresses. **[verified 2026-09-29, Playwright Chromium 153, headless, fresh profile]**
+- Chrome has been enabling that feature through a Finch rollout since May 2025, so a given Chrome
+  may do either, and a fresh Playwright profile never receives the Finch seed
+  ([blink-dev](https://www.mail-archive.com/blink-dev@chromium.org/msg13652.html)). **[docs]**
+- Safari clears it too, per the Chromium intent thread
+  ([blink-dev](https://groups.google.com/a/chromium.org/g/blink-dev/c/86VeIi5sZzc)). **[unverified]**
+- A bare 302 through another site, with no document loaded there, keeps the name on both engines.
+  **[verified 2026-09-29, Chromium 153 + Firefox 155]**
 - The protocol behind these claims, the per-browser run tables, the automation caveats, and Edge
   and iOS Safari (still unrun) are in [window-name-browser-tests.md](window-name-browser-tests.md)
   ([issue #2](https://github.com/mvysny/vaadin-tab-scope/issues/2),
-  [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141)).
+  [vaadin/flow#21141](https://github.com/vaadin/flow/issues/21141)); the cross-site rows come from
+  its §5 probe harness ([issue #7](https://github.com/mvysny/vaadin-tab-scope/issues/7)).
+
+## R_session_storage_tabs — Browsers: which tabs inherit `sessionStorage`
+
+- `sessionStorage` is per tab and per origin, and survives a reload and a cross-site round trip
+  that returns by a fresh navigation (link, 302, JS, POST) — the case that loses `window.name`.
+  **[verified 2026-09-29, Playwright Chromium 153 + Firefox 155]**
+- It is **copied** into a `window.open()` window that keeps its opener, and not into `noopener`
+  or a `target=_blank` link, which is implicitly `noopener`. **[verified 2026-09-29, both]**
+- It is copied into a Duplicate Tab, and the duplicate's navigation type reads `back_forward`.
+  **[verified 2026-09-29, Chromium 153 via `chrome.tabs.duplicate`]** Firefox's duplicate is
+  **[unverified]**: MDN documents only the opener copy.
+- The copy is a snapshot taken when the copy is made: a tab duplicated while it is away on another
+  site carries whatever the original wrote before leaving. **[verified 2026-09-29, Chromium 153]**

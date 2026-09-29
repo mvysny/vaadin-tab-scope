@@ -24,8 +24,9 @@ cookies are per browser, so every tab would collapse onto one scope. Why not the
 user's to retype, bookmark and share. Why not `sessionStorage`, which *is* per tab: reaching it
 means injecting JS of our own and round-tripping it before Vaadin bootstraps — and an ordering
 problem Flow already solves for us at the ECD receiver. The cost we carry is that identity is the
-browser's to lose: quit-restore, crash-restore and reopen-closed-tab always mint a fresh name,
-and a browser bug can drop it mid-tab (`R_window_name_browsers`). Both look server-side like
+browser's to lose: quit-restore, crash-restore and reopen-closed-tab always mint a fresh name, a
+cross-site round trip that returns by redirect rather than Back clears it on Firefox, and a
+browser bug can drop it mid-tab (`R_window_name_browsers`). All of these look server-side like
 close-then-new-tab — a fresh scope now, and the old one's destroy listener firing ~60 s later on
 a tab that never closed. There is no server-side repair.
 

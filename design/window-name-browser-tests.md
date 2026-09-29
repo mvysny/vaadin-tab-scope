@@ -86,6 +86,7 @@ three signals per row with one `page.evaluate`:
 | S5  | `document.location = location.href` | |
 | S6  | `page.goBack()` / `page.goForward()` | |
 | S7  | `page.goto('https://example.com')` then `page.goBack()` | needs outbound network |
+| S7b | `page.goto('https://example.com')` then `page.goto('http://localhost:8080/')` | a fresh return, not Back; Chromium needs bfcache on to show a drop (§5) |
 | S9  | `window.open('http://localhost:8080/tab-scoped-route')` | new tab → fresh name |
 | S13 | link away same-origin, then `page.goBack()` | bfcache restore |
 | S14 | open `/preserve`, `location.reload()` | |
@@ -290,6 +291,12 @@ Each entry leads with its expected verdict. The harness must be running and you 
   Browsers clear `window.name` on cross-origin navigation for security and may or may not restore it
   on Back — this row measures that. A new scope here is a real finding.
 
+- **S7b — Cross-site round trip, fresh return.** *Expected: undefined — measure; Firefox drops the
+  name (`R_window_name_browsers`).* In the same tab go to `https://example.com`, then type the
+  app's URL into the address bar — a fresh navigation, which is how a payment or SSO redirect
+  brings the user back. A new tab ID + `Value` + `Created TabScope{…}` means the name was lost.
+  The link/302/JS/POST variants run in the §5 probe harness.
+
 - **S8 — Duplicate Tab (human only).** *Expected: new scope — the duplicate must get a fresh
   `window.name`.* Right-click the tab → **Duplicate**. Confirm the new tab shows a **different**
   Browser tab ID + `Value` and logs its own `Created TabScope{…}`. **If instead it shows the same ID
@@ -369,11 +376,26 @@ When a "preserved"-expected row shows ⚠️:
 - **No server-side fix.** The server only sees the `window.name` the browser sends; if the browser
   drops it, the two navigations are indistinguishable from close-then-new-tab. State this explicitly
   in README as an inherent limitation for any confirmed ⚠️ row.
-- **Possible client-side probe (to evaluate, not yet built):** mirror `window.name` into
-  `sessionStorage` (which *is* tab-scoped and survives reload) and, on bootstrap, if `window.name`
-  is empty but `sessionStorage` holds a prior name, restore it before Vaadin reads it. This could
-  recover S2b/S3 losses. Note whether `sessionStorage` itself survives each failing scenario (it does
-  **not** survive S9/S10/new-tab, which is correct). If evaluated, capture the result here.
+- **Client-side mirror into `sessionStorage` — evaluated in a lab harness, not built**
+  ([issue #7](https://github.com/mvysny/vaadin-tab-scope/issues/7)). At the top of `<head>`,
+  before Flow reads `window.name`, the page keeps the tab id in `sessionStorage` too, sets a
+  "left" marker there on `pagehide` and clears it on load (and on a bfcache `pageshow`). At load:
+  no stored id → new tab; stored id equals `window.name` → same tab; they differ and the marker is
+  set → a tab coming back from another site, so restore `window.name`; they differ and no marker →
+  a copy (Duplicate Tab, `window.open`), so mint a new id. A copy has no marker because it is
+  taken from an original that is still open. Results are under
+  [Last Testing Outcome](#last-testing-outcome). The one miss: a tab duplicated *while it is away*
+  carries the marker, so both tabs come back claiming one id — a `BroadcastChannel` "does a live
+  page hold this id?" check, asked only when the marker is set, would close it. A lost `pagehide`
+  (mobile) reads as a copy and gets a new id, which is today's outcome.
+- **Running the harness** — [`cross-site-probe/`](cross-site-probe/): `server.py` serves the app
+  page (the heuristic above) on `localhost:8765` and a "payment provider" on `127.0.0.1:8766`, a
+  different site. Start it, then `PW_CORE=<playwright-core dir> node run.mjs firefox|chromium`;
+  `run.mjs`'s header explains the columns and the Chromium switches (`BFCACHE=1`, `FEATURES=`).
+  The Chromium Duplicate Tab row goes through the `ext/` extension, since CDP has no
+  duplicate-target command. `chromium-flags.mjs` isolates which switch makes Chromium clear the
+  name. Any cached `@playwright/mcp` install carries a `playwright-core` whose browsers are
+  already downloaded.
 - Otherwise record **"no known mitigation — inherent limitation"** for the confirmed rows, as the
   issue permits.
 
@@ -386,6 +408,9 @@ When a "preserved"-expected row shows ⚠️:
 > the **test date**, then a two-column table: **Scenario ID** and **Outcome** — `passes` or `fails`;
 > on `fails`, a short free-text description of what went wrong (which signal changed, delayed
 > destroy, etc.). Scenario IDs and their expectations are defined in [§3](#3-scenarios-and-steps).
+
+_S7b and the `sessionStorage` heuristic (§5) postdate the 2026-07-22 sweep: their only run so far is
+the probe-harness chapter at the bottom, not the testapp._
 
 _Chrome (Chromium 150), Firefox/LibreWolf, and Safari 26.5.2 (Web Inspector closed): complete passes
 of all 17 scenarios on 2026-07-22, below. The Chrome and Firefox chapters were two-browser-in-one-
@@ -500,6 +525,7 @@ real run._
 | S5 | |
 | S6 | |
 | S7 | |
+| S7b | |
 | S8 | |
 | S9 | |
 | S10 | |
@@ -599,6 +625,7 @@ real run._
 | S5 | |
 | S6 | |
 | S7 | |
+| S7b | |
 | S8 | |
 | S9 | |
 | S10 | |
@@ -606,3 +633,24 @@ real run._
 | S12 | |
 | S13 | |
 | S14 | |
+
+## S7b + `sessionStorage` heuristic — probe harness, Chromium 153 / Firefox 155 — 2026-09-29
+
+> Run in [`cross-site-probe/`](cross-site-probe/) (§5), not the testapp: Playwright's own Chromium
+> 153 (fresh profile, headless, run with `BFCACHE=1
+> FEATURES=ClearCrossSiteCrossBrowsingContextGroupWindowName`) and Firefox 155 (headless). Without
+> those two switches Chromium keeps the name on every row, so "today" there reads *kept* — see
+> `R_window_name_browsers`. **Today** is what the server receives now; **heuristic** is the id the
+> §5 mirror would hand Flow instead. Safari, Edge, Firefox's Duplicate Tab and mobile are unrun.
+
+| Scenario | Today (`window.name` at load) | Heuristic |
+|----------|-------------------------------|-----------|
+| reload, in-app link | kept, both | same tab, id kept |
+| S7b: away, back by link / 302 / JS / POST | **lost (`""`)**, both | returning, **id kept**, both |
+| S7: away, then Back | kept (Firefox: history restores it; Chromium: bfcache restore, no re-run) | id kept |
+| bare 302 via the other site | kept, both | same tab |
+| `window.open` with opener | fresh (`""`) | copy (`sessionStorage` inherited, no marker) → new id; original keeps its own |
+| `noopener`, `target=_blank` | fresh | new tab (nothing inherited) |
+| S8 Duplicate Tab (Chromium) | fresh | copy → new id; original keeps its own |
+| Duplicate *while away*, both return (Chromium) | lost, both | **fails** — both claim the original's id (the marker was copied too) |
+
